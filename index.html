@@ -219,6 +219,16 @@ const DEP_GROUPS = [
   ['Data Tables', /DATATABLE/], ['Queues', /QUEUE/], ['Skills', /SKILL/], ['Languages', /LANGUAGE/], ['Prompts', /PROMPT/],
 ];
 
+// Dependency Tracking needs a flow-type-specific objectType (a plain "FLOW" is rejected).
+const DEP_OBJECT_TYPES = {
+  bot: ['BOTFLOW'], digitalbot: ['DIGITALBOTFLOW'], commonmodule: ['COMMONMODULEFLOW'],
+  inboundcall: ['INBOUNDCALLFLOW'], inboundchat: ['INBOUNDCHATFLOW'], inboundemail: ['INBOUNDEMAILFLOW'],
+  inboundshortmessage: ['INBOUNDSHORTMESSAGEFLOW'], outboundcall: ['OUTBOUNDCALLFLOW'],
+  inqueuecall: ['INQUEUECALLFLOW'], inqueueemail: ['INQUEUEEMAILFLOW'], inqueueshortmessage: ['INQUEUESHORTMESSAGEFLOW'],
+  securecall: ['SECURECALLFLOW'], voicemail: ['VOICEMAILFLOW'], workflow: ['WORKFLOW'], workitem: ['WORKITEMFLOW'],
+  surveyinvite: ['SURVEYINVITEFLOW'], voice: ['VOICEFLOW', 'VOICESURVEYFLOW'], voicesurvey: ['VOICESURVEYFLOW'],
+};
+
 const K = {
   cfg: 'gcFlowExporter.config.v1',
   token: 'gcFlowExporter.token.v1',
@@ -528,14 +538,25 @@ function groupDeps(entities) {
 async function loadDeps(flow) {
   const version = (flow.publishedVersion || flow.checkedInVersion || flow.savedVersion || {}).id;
   if (!version) throw new Error('This flow has no published or checked-in version, so there is nothing to track dependencies for.');
-  let page = 1, pageCount = 1, all = [];
-  do {
-    const q = new URLSearchParams({ id: flow.id, version, objectType: 'FLOW', pageSize: '100', pageNumber: String(page) });
-    const d = await api(`/api/v2/architect/dependencytracking/consumedresources?${q}`);
-    all = all.concat(d.entities || []);
-    pageCount = d.pageCount || 1; page++;
-  } while (page <= pageCount);
-  return { version, groups: groupDeps(all) };
+  const t = String(flow.type || '').toLowerCase();
+  const candidates = DEP_OBJECT_TYPES[t] || [t.toUpperCase() + 'FLOW'];
+  let lastErr;
+  for (const objectType of candidates) {
+    try {
+      let page = 1, pageCount = 1, all = [];
+      do {
+        const q = new URLSearchParams({ id: flow.id, version, objectType, pageSize: '100', pageNumber: String(page) });
+        const d = await api(`/api/v2/architect/dependencytracking/consumedresources?${q}`);
+        all = all.concat(d.entities || []);
+        pageCount = d.pageCount || 1; page++;
+      } while (page <= pageCount);
+      return { version, groups: groupDeps(all) };
+    } catch (e) {
+      lastErr = e;
+      if (!(e.status === 400 && /not valid for parameter/i.test(e.message))) throw e; // try next candidate only for objectType rejections
+    }
+  }
+  throw new Error(`Dependency Tracking does not recognise flow type "${flow.type}" (tried ${candidates.join(', ')}).`);
 }
 
 /* ---------- export ---------- */
