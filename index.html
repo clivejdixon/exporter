@@ -104,6 +104,8 @@
   .deps-btns { display: flex; gap: 6px; }
   .btn.small { padding: 6px 12px; font-size: 12.5px; }
   .dtype-head label { display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; font-weight: inherit; }
+  .dtype li label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 400; }
+  .side-actions code, .note code { background: #eef1f8; padding: 1px 5px; border-radius: 5px; }
   .twisty { font: inherit; font-size: 10px; width: 24px; height: 24px; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; flex: none; }
   .twisty:hover:not(:disabled) { background: #eef1f8; color: var(--text); }
   .twisty:disabled { opacity: .3; cursor: default; }
@@ -173,9 +175,10 @@
     <section class="panel side" aria-label="Export">
       <div class="side-actions">
         <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
+        <button class="btn primary" id="tfBtn" type="button" disabled>Export to Terraform</button>
         <span class="progress" id="progress"></span>
       </div>
-      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML.</p>
+      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it.</p>
       <div class="deps" id="deps" hidden>
         <div class="deps-head">
           <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
@@ -241,7 +244,7 @@ const S = {
   token: null, org: null, domain: null,
   flowType: null, typesOpen: true, flows: [], selected: new Set(), loadSeq: 0, loading: false, loadError: false,
   deps: new Map(),          // flowId -> {flow, groups:[{label,items[]}], error, loading}
-  depTypesOff: new Set(), depOpen: new Set(),    // category labels the user unticked
+  depOff: new Set(), depOpen: new Set(),    // category labels the user unticked
   busy: false,
 };
 
@@ -595,14 +598,154 @@ async function exportSelected() {
   renderAll();
 }
 
+// Object selection helpers: every object is selected unless its key is in S.depOff.
+const itemKey = (flowId, label, d) => `${flowId}|${label}|${d.id || d.name}`;
+const itemOn = (flowId, label, d) => !S.depOff.has(itemKey(flowId, label, d));
+function selectedGroups(entry) {
+  return (entry.groups || [])
+    .map((g) => ({ label: g.label, items: g.items.filter((d) => itemOn(entry.flow.id, g.label, d)) }))
+    .filter((g) => g.items.length);
+}
+
 function downloadCsv() {
-  const rows = [['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version']];
+  let n = 0;
   for (const e of S.deps.values()) {
-    (e.groups || []).filter((g) => !S.depTypesOff.has(g.label)).forEach((g) =>
-      g.items.forEach((d) => rows.push([e.flow.name, e.flow.type, g.label, d.name, d.id, d.version || ''])));
+    const groups = selectedGroups(e);
+    if (!groups.length) continue;
+    const rows = [['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version']];
+    groups.forEach((g) => g.items.forEach((d) => rows.push([e.flow.name, e.flow.type, g.label, d.name, d.id || '', d.version || ''])));
+    const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    setTimeout(() => download(`${safeName(e.flow.name)}_dependencies.csv`, csv, 'text/csv'), n++ * 350);
   }
-  const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  download('flow_dependencies.csv', csv, 'text/csv');
+  if (!n) showMsg('No dependency objects are selected, so there is nothing to put in a CSV.', 'warn');
+}
+
+/* ---------- Terraform ---------- */
+const TF_PROVIDER_VERSION = '1.86.1';
+// Dependency group label -> genesyscloud Terraform resource type used in include_filter_resources.
+const TF_RESOURCES = {
+  'Milestones': 'genesyscloud_flow_milestone',
+  'Outcomes': 'genesyscloud_flow_outcome',
+  'Prompts': 'genesyscloud_architect_user_prompt',
+  'Data Actions': 'genesyscloud_integration_action',
+  'Data Tables': 'genesyscloud_architect_datatable',
+  'Queues': 'genesyscloud_routing_queue',
+  'Skills': 'genesyscloud_routing_skill',
+  'Wrap-up Codes': 'genesyscloud_routing_wrapupcode',
+  'Schedules': 'genesyscloud_architect_schedules',
+  'Schedule Groups': 'genesyscloud_architect_schedulegroups',
+  'Emergency Groups': 'genesyscloud_architect_emergencygroup',
+  'Grammars': 'genesyscloud_architect_grammar',
+  'Knowledge Bases': 'genesyscloud_knowledge_knowledgebase',
+  'Common Modules': 'genesyscloud_flow',
+  'Flows': 'genesyscloud_flow',
+  'Integrations': 'genesyscloud_integration',
+  'Groups': 'genesyscloud_group',
+  'Scripts': 'genesyscloud_script',
+};
+const regexEscape = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hclString = (str) => str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$\{/g, () => '$${').replace(/%\{/g, () => '%%{');
+
+function buildTerraform(flow, groups) {
+  const prefix = 'flow_' + safeName(flow.name).replace(/[^A-Za-z0-9_]/g, '_').toLowerCase();
+  const awsRegion = ((REGIONS.find(([, d]) => d === S.domain) || [''])[0] || '').split(' ')[0];
+  // Merge groups that map to the same Terraform resource type (e.g. Common Modules + Flows).
+  const byRes = new Map(); const skipped = [];
+  for (const g of groups) {
+    const res = TF_RESOURCES[g.label];
+    if (!res) { skipped.push(`${g.label} (${g.items.length})`); continue; }
+    if (!byRes.has(res)) byRes.set(res, new Set());
+    g.items.forEach((d) => byRes.get(res).add(d.name));
+  }
+  const locals = []; const filters = [];
+  for (const [res, names] of byRes) {
+    const local = res.replace(/^genesyscloud_/, '') + '_name_regex';
+    const pattern = '^(' + [...names].sort((x, y) => x.localeCompare(y)).map(regexEscape).join('|') + ')$';
+    locals.push(`  ${prefix}_${local} = "${hclString(pattern)}"`);
+    filters.push(`    "${res}::\${local.${prefix}_${local}}"`);
+  }
+  if (!filters.length) return null;
+  const lines = [
+    `# Terraform export for Genesys Cloud flow: ${flow.name}`,
+    `# Flow type: ${flow.type}   Division: ${(flow.division && flow.division.name) || ''}`,
+    `# Generated: ${new Date().toISOString()}`,
+    ...(skipped.length ? [`# Not included (no Terraform export resource available): ${skipped.join(', ')}`] : []),
+    '',
+    'terraform {',
+    '  required_providers {',
+    '    genesyscloud = {',
+    '      source  = "MyPureCloud/genesyscloud"',
+    `      version = "${TF_PROVIDER_VERSION}"`,
+    '    }',
+    '  }',
+    '}',
+    '',
+    'variable "oauthClientId" { type = string }',
+    'variable "oauthClientSecret" { type = string }',
+    `variable "oauthAWSRegion" {\n  type    = string${awsRegion ? `\n  default = "${awsRegion}"` : ''}\n}`,
+    '',
+    'provider "genesyscloud" {',
+    '  oauthclient_id     = var.oauthClientId',
+    '  oauthclient_secret = var.oauthClientSecret',
+    '  aws_region         = var.oauthAWSRegion',
+    '  sdk_debug          = true',
+    '}',
+    '',
+    'locals {',
+    locals.join('\n\n'),
+    '}',
+    '',
+    `resource "genesyscloud_tf_export" "${prefix}_dependencies" {`,
+    `  directory = "./export/${hclString(safeName(flow.name))}"`,
+    '',
+    '  export_format      = "hcl"',
+    '  include_state_file = false',
+    '',
+    '  include_filter_resources = [',
+    filters.join(',\n'),
+    '  ]',
+    '',
+    '  enable_dependency_resolution = false',
+    '  split_files_by_resource      = false',
+    '  log_permission_errors        = false',
+    '}',
+    '',
+  ];
+  return { text: lines.join('\n'), skipped };
+}
+
+async function exportTerraform() {
+  if (S.busy) return;
+  const flows = S.flows.filter((f) => S.selected.has(f.id));
+  if (!flows.length) return;
+  clearMsg();
+  S.busy = true; renderExport();
+  const notes = []; let made = 0;
+  for (let i = 0; i < flows.length; i++) {
+    const f = flows[i];
+    $('progress').innerHTML = `<span class="spinner"></span>Building Terraform ${i + 1} of ${flows.length}: ${esc(f.name)}`;
+    let entry = S.deps.get(f.id);
+    if (!entry || !entry.groups) {   // dependencies not loaded yet: read them from the flow manifest (all selected)
+      entry = { flow: f, loading: true }; S.deps.set(f.id, entry); renderDeps();
+      try {
+        const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
+        if (!cfg || !cfg.manifest) throw new Error('the flow configuration has no manifest section');
+        entry.groups = groupManifest(cfg.manifest);
+      } catch (e) { entry.error = 'Dependencies could not be read: ' + e.message; }
+      entry.loading = false; renderDeps();
+    }
+    if (!entry.groups) { notes.push(`${f.name}: ${entry.error || 'no dependency data'}`); continue; }
+    const out = buildTerraform(f, selectedGroups(entry));
+    if (!out) { notes.push(`${f.name}: no selected objects can be exported with Terraform, so no file was created.`); continue; }
+    if (out.skipped.length) notes.push(`${f.name}: left out ${out.skipped.join(', ')} (no Terraform export resource).`);
+    download(`${safeName(f.name)}.tf`, out.text, 'text/plain');
+    made++;
+    if (i < flows.length - 1) await sleep(350);
+  }
+  S.busy = false;
+  $('progress').textContent = made ? `Created ${made} Terraform file${made === 1 ? '' : 's'}.` : '';
+  if (notes.length) showMsg(notes.join('\n'), made ? 'info' : 'warn');
+  renderAll();
 }
 
 /* ---------- rendering ---------- */
@@ -657,6 +800,7 @@ function renderDeps() {
   if (!S.deps.size) { box.hidden = true; return; }
   box.hidden = false;
   const parts = [];
+  let total = 0, off = 0;
   for (const e of S.deps.values()) {
     let inner;
     if (e.loading) inner = '<div class="none"><span class="spinner"></span>Waiting…</div>';
@@ -667,31 +811,33 @@ function renderDeps() {
         const key = e.flow.id + '|' + g.label;
         const has = g.items.length > 0;
         const open = has && S.depOpen.has(key);
-        const on = !S.depTypesOff.has(g.label);
+        const sel = g.items.filter((d) => itemOn(e.flow.id, g.label, d)).length;
+        total += g.items.length; off += g.items.length - sel;
         const names = open
-          ? `<ul>${g.items.map((d) => `<li class="${d.deleted ? 'deleted' : ''}">${esc(d.name || d.id)}</li>`).join('')}</ul>` : '';
+          ? `<ul>${g.items.map((d) => `<li class="${d.deleted ? 'deleted' : ''}"><label><input type="checkbox" data-item="${esc(itemKey(e.flow.id, g.label, d))}" ${itemOn(e.flow.id, g.label, d) ? 'checked' : ''}> ${esc(d.name || d.id)}</label></li>`).join('')}</ul>` : '';
         return `<div class="dtype ${has ? '' : 'zero'}">
           <div class="dtype-head">
             <button type="button" class="twisty" data-toggle="${esc(key)}" aria-expanded="${open}" ${has ? '' : 'disabled'} aria-label="${open ? 'Collapse' : 'Expand'} ${esc(g.label)}">${open ? '▼' : '▶'}</button>
-            <label><input type="checkbox" data-dtype="${esc(g.label)}" ${on ? 'checked' : ''}> ${esc(g.label)}</label>
-            <span class="n">${g.items.length}</span>
+            <label><input type="checkbox" data-dtype="${esc(key)}" ${sel === g.items.length && has ? 'checked' : ''} ${has ? '' : 'disabled'} data-partial="${sel > 0 && sel < g.items.length}"> ${esc(g.label)}</label>
+            <span class="n">${has && sel < g.items.length ? sel + ' of ' : ''}${g.items.length}</span>
           </div>${names}</div>`;
       }).join('');
     }
     parts.push(`<div class="flowdeps"><h3>${esc(e.flow.name)}</h3>${inner}</div>`);
   }
   $('depBody').innerHTML = parts.join('');
-  const labels = new Set(); S.deps.forEach((e) => (e.groups || []).forEach((g) => labels.add(g.label)));
-  const offCount = [...labels].filter((l) => S.depTypesOff.has(l)).length;
-  $('depAll').checked = offCount === 0; $('depAll').indeterminate = offCount > 0 && offCount < labels.size;
-  $('csvBtn').disabled = ![...S.deps.values()].some((e) => e.groups);
+  $('depBody').querySelectorAll('input[data-partial=true]').forEach((c) => { c.indeterminate = true; });
+  $('depAll').checked = total > 0 && off === 0; $('depAll').indeterminate = off > 0 && off < total; $('depAll').disabled = total === 0;
+  $('csvBtn').disabled = total === 0 || off === total;
   const anyClosed = [...S.deps.values()].some((e) => (e.groups || []).some((g) => g.items.length && !S.depOpen.has(e.flow.id + '|' + g.label)));
   $('expandBtn').textContent = anyClosed ? 'Expand all' : 'Collapse all';
-  $('expandBtn').disabled = ![...S.deps.values()].some((e) => e.groups && e.groups.some((g) => g.items.length));
+  $('expandBtn').disabled = total === 0;
 }
 
 function renderExport() {
   $('exportBtn').disabled = S.busy || S.selected.size === 0;
+  $('tfBtn').disabled = S.busy || S.selected.size === 0;
+  $('tfBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to Terraform` : 'Export to Terraform';
   $('exportBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to YAML` : 'Export to YAML';
 }
 
@@ -735,14 +881,23 @@ function wire() {
     S.depOpen.has(k) ? S.depOpen.delete(k) : S.depOpen.add(k);
     renderDeps();
   });
+  $('tfBtn').addEventListener('click', exportTerraform);
   $('depBody').addEventListener('change', (e) => {
-    const t = e.target.dataset && e.target.dataset.dtype; if (t === undefined) return;
-    e.target.checked ? S.depTypesOff.delete(t) : S.depTypesOff.add(t);
+    const t = e.target.dataset || {};
+    if (t.item !== undefined) {
+      e.target.checked ? S.depOff.delete(t.item) : S.depOff.add(t.item);
+    } else if (t.dtype !== undefined) {     // whole type: tick/untick every object of that type for that flow
+      const [flowId, ...rest] = t.dtype.split('|'); const label = rest.join('|');
+      const g = ((S.deps.get(flowId) || {}).groups || []).find((x) => x.label === label);
+      if (g) g.items.forEach((d) => (e.target.checked ? S.depOff.delete(itemKey(flowId, label, d)) : S.depOff.add(itemKey(flowId, label, d))));
+    } else return;
     renderDeps();
   });
   $('depAll').addEventListener('change', (e) => {
-    const labels = new Set(); S.deps.forEach((x) => (x.groups || []).forEach((g) => labels.add(g.label)));
-    labels.forEach((l) => (e.target.checked ? S.depTypesOff.delete(l) : S.depTypesOff.add(l)));
+    S.deps.forEach((x) => (x.groups || []).forEach((g) => g.items.forEach((d) => {
+      const k = itemKey(x.flow.id, g.label, d);
+      e.target.checked ? S.depOff.delete(k) : S.depOff.add(k);
+    })));
     renderDeps();
   });
 }
