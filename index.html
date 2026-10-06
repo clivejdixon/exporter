@@ -98,12 +98,18 @@
   .flowdeps > h3 { margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--line); background: #f7f9fd; border-radius: 10px 10px 0 0; word-break: break-word; }
   .flowdeps > .err { padding: 10px 12px; font-size: 13px; color: var(--red); }
   .flowdeps > .none { padding: 10px 12px; font-size: 13px; color: var(--muted); }
-  .dtype { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .dtype { padding: 6px 12px 6px 6px; border-bottom: 1px solid var(--line); }
   .dtype:last-child { border-bottom: 0; }
   .dtype-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .deps-btns { display: flex; gap: 6px; }
+  .btn.small { padding: 6px 12px; font-size: 12.5px; }
+  .dtype-head label { display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; font-weight: inherit; }
+  .twisty { font: inherit; font-size: 10px; width: 24px; height: 24px; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; flex: none; }
+  .twisty:hover:not(:disabled) { background: #eef1f8; color: var(--text); }
+  .twisty:disabled { opacity: .3; cursor: default; }
   .dtype-head .n { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
   .dtype.zero .dtype-head { color: var(--muted); font-weight: 400; }
-  .dtype ul { margin: 6px 0 2px 24px; padding: 0; list-style: none; font-size: 13px; display: grid; gap: 3px; }
+  .dtype ul { margin: 4px 0 4px 56px; padding: 0; list-style: none; font-size: 13px; display: grid; gap: 3px; }
   .dtype li { word-break: break-word; }
   .dtype li.deleted { color: var(--muted); text-decoration: line-through; }
   .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #c7d2fe; border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
@@ -173,7 +179,7 @@
       <div class="deps" id="deps" hidden>
         <div class="deps-head">
           <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
-          <button class="btn" id="csvBtn" type="button">Download list (.csv)</button>
+          <span class="deps-btns"><button class="btn small" id="expandBtn" type="button">Expand all</button><button class="btn small" id="csvBtn" type="button">Download list (.csv)</button></span>
         </div>
         <div id="depBody"></div>
       </div>
@@ -245,7 +251,7 @@ const S = {
   token: null, org: null, domain: null,
   flowType: null, typesOpen: true, flows: [], selected: new Set(), loadSeq: 0, loading: false, loadError: false,
   deps: new Map(),          // flowId -> {flow, groups:[{label,items[]}], error, loading}
-  depTypesOff: new Set(),   // category labels the user unticked
+  depTypesOff: new Set(), depOpen: new Set(),    // category labels the user unticked
   busy: false,
 };
 
@@ -518,21 +524,41 @@ function download(filename, text, mime) {
 const safeName = (s) => String(s || 'flow').replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'flow';
 
 /* ---------- dependencies ---------- */
+// Dependency types that are internal to the flow and cannot be exported/created as org configuration.
+const NON_EXPORTABLE = /FLOWACTION|FLOWDATATYPE|NLUDOMAIN|STTENGINE|TTSENGINE|^ACTION$|^TASK$|^VARIABLE/;
+// Friendly labels for other exportable types that can legitimately appear.
+const OTHER_LABELS = {
+  WRAPUPCODE: 'Wrap-up Codes', ACDWRAPUPCODE: 'Wrap-up Codes', SCHEDULE: 'Schedules', SCHEDULEGROUP: 'Schedule Groups',
+  EMERGENCYGROUP: 'Emergency Groups', IVRCONFIG: 'IVR Configs', GROUP: 'Groups', USER: 'Users', INTEGRATION: 'Integrations',
+  GRAMMAR: 'Grammars', KNOWLEDGEBASE: 'Knowledge Bases', RESPONSE: 'Responses', RESPONSEASSET: 'Response Assets',
+  OAUTHCLIENT: 'OAuth Clients', SCRIPT: 'Scripts', DIVISION: 'Divisions', UTILIZATIONLABEL: 'Utilization Labels',
+  DIALOGENGINEBOT: 'Dialog Engine Bots', BOTCONNECTORBOT: 'Bot Connector Bots', LEXBOT: 'Lex Bots', LEXV2BOT: 'Lex V2 Bots',
+};
+function otherLabel(t) {
+  if (OTHER_LABELS[t]) return OTHER_LABELS[t];
+  if (/FLOW$/.test(t)) return 'Flows';
+  return t.charAt(0) + t.slice(1).toLowerCase();
+}
+
 function groupDeps(entities) {
   const groups = DEP_GROUPS.map(([label]) => ({ label, items: [] }));
   const other = new Map();
   for (const d of entities) {
-    const t = String(d.type || '').toUpperCase().replace(/[^A-Z]/g, '');
+    const t = String(d.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (NON_EXPORTABLE.test(t)) continue;
     const idx = DEP_GROUPS.findIndex(([, re]) => re.test(t));
     if (idx >= 0) groups[idx].items.push(d);
     else {
-      const label = `Other (${String(d.type || 'unknown').toLowerCase()})`;
+      const label = otherLabel(t);
       if (!other.has(label)) other.set(label, { label, items: [] });
       other.get(label).items.push(d);
     }
   }
-  groups.forEach((g) => g.items.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })));
-  return groups.concat([...other.values()].sort((a, b) => a.label.localeCompare(b.label)));
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  groups.forEach((g) => g.items.sort(byName));
+  const extra = [...other.values()].sort((a, b) => a.label.localeCompare(b.label));
+  extra.forEach((g) => g.items.sort(byName));
+  return groups.concat(extra);
 }
 
 async function loadDeps(flow) {
@@ -658,14 +684,21 @@ function renderDeps() {
     let inner;
     if (e.loading) inner = '<div class="none"><span class="spinner"></span>Waiting…</div>';
     else if (e.error) inner = `<div class="err">${esc(e.error)}</div>`;
-    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow does not consume any tracked configuration objects.</div>';
+    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow does not consume any exportable configuration objects.</div>';
     else {
       inner = e.groups.map((g) => {
+        const key = e.flow.id + '|' + g.label;
+        const has = g.items.length > 0;
+        const open = has && S.depOpen.has(key);
         const on = !S.depTypesOff.has(g.label);
-        const names = on && g.items.length
+        const names = open
           ? `<ul>${g.items.map((d) => `<li class="${d.deleted ? 'deleted' : ''}">${esc(d.name || d.id)}</li>`).join('')}</ul>` : '';
-        return `<div class="dtype ${g.items.length ? '' : 'zero'}">
-          <label class="dtype-head"><input type="checkbox" data-dtype="${esc(g.label)}" ${on ? 'checked' : ''}> ${esc(g.label)}<span class="n">${g.items.length}</span></label>${names}</div>`;
+        return `<div class="dtype ${has ? '' : 'zero'}">
+          <div class="dtype-head">
+            <button type="button" class="twisty" data-toggle="${esc(key)}" aria-expanded="${open}" ${has ? '' : 'disabled'} aria-label="${open ? 'Collapse' : 'Expand'} ${esc(g.label)}">${open ? '▼' : '▶'}</button>
+            <label><input type="checkbox" data-dtype="${esc(g.label)}" ${on ? 'checked' : ''}> ${esc(g.label)}</label>
+            <span class="n">${g.items.length}</span>
+          </div>${names}</div>`;
       }).join('');
     }
     parts.push(`<div class="flowdeps"><h3>${esc(e.flow.name)}</h3>${inner}</div>`);
@@ -675,6 +708,9 @@ function renderDeps() {
   const offCount = [...labels].filter((l) => S.depTypesOff.has(l)).length;
   $('depAll').checked = offCount === 0; $('depAll').indeterminate = offCount > 0 && offCount < labels.size;
   $('csvBtn').disabled = ![...S.deps.values()].some((e) => e.groups);
+  const anyClosed = [...S.deps.values()].some((e) => (e.groups || []).some((g) => g.items.length && !S.depOpen.has(e.flow.id + '|' + g.label)));
+  $('expandBtn').textContent = anyClosed ? 'Expand all' : 'Collapse all';
+  $('expandBtn').disabled = ![...S.deps.values()].some((e) => e.groups && e.groups.some((g) => g.items.length));
 }
 
 function renderExport() {
@@ -709,6 +745,19 @@ function wire() {
   });
   $('exportBtn').addEventListener('click', exportSelected);
   $('csvBtn').addEventListener('click', downloadCsv);
+  $('expandBtn').addEventListener('click', () => {
+    const keys = [];
+    S.deps.forEach((e) => (e.groups || []).forEach((g) => g.items.length && keys.push(e.flow.id + '|' + g.label)));
+    const allOpen = keys.every((k) => S.depOpen.has(k));
+    keys.forEach((k) => (allOpen ? S.depOpen.delete(k) : S.depOpen.add(k)));
+    renderDeps();
+  });
+  $('depBody').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-toggle]'); if (!b) return;
+    const k = b.dataset.toggle;
+    S.depOpen.has(k) ? S.depOpen.delete(k) : S.depOpen.add(k);
+    renderDeps();
+  });
   $('depBody').addEventListener('change', (e) => {
     const t = e.target.dataset && e.target.dataset.dtype; if (t === undefined) return;
     e.target.checked ? S.depTypesOff.delete(t) : S.depTypesOff.add(t);
