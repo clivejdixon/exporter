@@ -175,7 +175,7 @@
         <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
         <span class="progress" id="progress"></span>
       </div>
-      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from Architect Dependency Tracking.</p>
+      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML.</p>
       <div class="deps" id="deps" hidden>
         <div class="deps-head">
           <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
@@ -222,18 +222,8 @@ const FLOW_TYPES = [
 // Dependency categories shown in the panel (order = display order).
 const DEP_GROUPS = [
   ['Milestones', /MILESTONE/], ['Outcomes', /OUTCOME/], ['Data Actions', /DATAACTION|INTEGRATIONACTION|CUSTOMACTION/],
-  ['Data Tables', /DATATABLE/], ['Queues', /QUEUE/], ['Skills', /SKILL/], ['Languages', /LANGUAGE/], ['Prompts', /PROMPT/],
+  ['Data Tables', /DATATABLE/], ['Queues', /QUEUE/], ['Skills', /SKILL/], ['Prompts', /PROMPT/],
 ];
-
-// Dependency Tracking needs a flow-type-specific objectType (a plain "FLOW" is rejected).
-const DEP_OBJECT_TYPES = {
-  bot: ['BOTFLOW'], digitalbot: ['DIGITALBOTFLOW'], commonmodule: ['COMMONMODULEFLOW'],
-  inboundcall: ['INBOUNDCALLFLOW'], inboundchat: ['INBOUNDCHATFLOW'], inboundemail: ['INBOUNDEMAILFLOW'],
-  inboundshortmessage: ['INBOUNDSHORTMESSAGEFLOW'], outboundcall: ['OUTBOUNDCALLFLOW'],
-  inqueuecall: ['INQUEUECALLFLOW'], inqueueemail: ['INQUEUEEMAILFLOW'], inqueueshortmessage: ['INQUEUESHORTMESSAGEFLOW'],
-  securecall: ['SECURECALLFLOW'], voicemail: ['VOICEMAILFLOW'], workflow: ['WORKFLOW'], workitem: ['WORKITEMFLOW'],
-  surveyinvite: ['SURVEYINVITEFLOW'], voice: ['VOICEFLOW', 'VOICESURVEYFLOW'], voicesurvey: ['VOICESURVEYFLOW'],
-};
 
 const K = {
   cfg: 'gcFlowExporter.config.v1',
@@ -524,65 +514,51 @@ function download(filename, text, mime) {
 const safeName = (s) => String(s || 'flow').replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'flow';
 
 /* ---------- dependencies ---------- */
-// Dependency types that are internal to the flow and cannot be exported/created as org configuration.
-const NON_EXPORTABLE = /FLOWACTION|FLOWDATATYPE|NLUDOMAIN|STTENGINE|TTSENGINE|^ACTION$|^TASK$|^VARIABLE/;
-// Friendly labels for other exportable types that can legitimately appear.
+// Manifest sections that are not exportable org configuration (platform-provided or internal to the flow).
+const NON_EXPORTABLE = /NLUDOMAIN|STTENGINE|TTSENGINE|SYSTEMPROMPT|^LANGUAGE$|FLOWACTION|FLOWDATATYPE/;
+// Friendly labels for other exportable manifest sections that can appear.
 const OTHER_LABELS = {
   WRAPUPCODE: 'Wrap-up Codes', ACDWRAPUPCODE: 'Wrap-up Codes', SCHEDULE: 'Schedules', SCHEDULEGROUP: 'Schedule Groups',
-  EMERGENCYGROUP: 'Emergency Groups', IVRCONFIG: 'IVR Configs', GROUP: 'Groups', USER: 'Users', INTEGRATION: 'Integrations',
-  GRAMMAR: 'Grammars', KNOWLEDGEBASE: 'Knowledge Bases', RESPONSE: 'Responses', RESPONSEASSET: 'Response Assets',
-  OAUTHCLIENT: 'OAuth Clients', SCRIPT: 'Scripts', DIVISION: 'Divisions', UTILIZATIONLABEL: 'Utilization Labels',
-  DIALOGENGINEBOT: 'Dialog Engine Bots', BOTCONNECTORBOT: 'Bot Connector Bots', LEXBOT: 'Lex Bots', LEXV2BOT: 'Lex V2 Bots',
+  EMERGENCYGROUP: 'Emergency Groups', GRAMMAR: 'Grammars', KNOWLEDGEBASE: 'Knowledge Bases', INTEGRATION: 'Integrations',
+  COMMONMODULE: 'Common Modules', COMMONMODULEFLOW: 'Common Modules', FLOW: 'Flows', GROUP: 'Groups',
+  RESPONSE: 'Responses', SCRIPT: 'Scripts', UTILIZATIONLABEL: 'Utilization Labels', DIVISION: 'Divisions',
 };
-function otherLabel(t) {
-  if (OTHER_LABELS[t]) return OTHER_LABELS[t];
-  if (/FLOW$/.test(t)) return 'Flows';
-  return t.charAt(0) + t.slice(1).toLowerCase();
+function otherLabel(rawKey, norm) {
+  if (OTHER_LABELS[norm]) return OTHER_LABELS[norm];
+  const spaced = rawKey.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function groupDeps(entities) {
+// Build the dependency groups from the flow's own manifest (the same data that is in the exported YAML).
+function groupManifest(manifest) {
   const groups = DEP_GROUPS.map(([label]) => ({ label, items: [] }));
   const other = new Map();
-  for (const d of entities) {
-    const t = String(d.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (NON_EXPORTABLE.test(t)) continue;
-    const idx = DEP_GROUPS.findIndex(([, re]) => re.test(t));
-    if (idx >= 0) groups[idx].items.push(d);
+  const seen = new Set();
+  for (const [key, list] of Object.entries(manifest || {})) {
+    if (!Array.isArray(list) || !list.length) continue;
+    const norm = key.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (NON_EXPORTABLE.test(norm)) continue;
+    const idx = DEP_GROUPS.findIndex(([, re]) => re.test(norm));
+    let bucket;
+    if (idx >= 0) bucket = groups[idx];
     else {
-      const label = otherLabel(t);
+      const label = otherLabel(key, norm);
       if (!other.has(label)) other.set(label, { label, items: [] });
-      other.get(label).items.push(d);
+      bucket = other.get(label);
+    }
+    for (const it of list) {
+      const id = it && it.id;
+      const uniq = bucket.label + '|' + (id || (it && it.name));
+      if (seen.has(uniq)) continue;
+      seen.add(uniq);
+      bucket.items.push({ id, name: (it && it.name) || id || '(unnamed)', version: it && it.version });
     }
   }
-  const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  const byName = (x, y) => (x.name || '').localeCompare(y.name || '', undefined, { sensitivity: 'base' });
   groups.forEach((g) => g.items.sort(byName));
-  const extra = [...other.values()].sort((a, b) => a.label.localeCompare(b.label));
+  const extra = [...other.values()].sort((x, y) => x.label.localeCompare(y.label));
   extra.forEach((g) => g.items.sort(byName));
   return groups.concat(extra);
-}
-
-async function loadDeps(flow) {
-  const version = (flow.publishedVersion || flow.checkedInVersion || flow.savedVersion || {}).id;
-  if (!version) throw new Error('This flow has no published or checked-in version, so there is nothing to track dependencies for.');
-  const t = String(flow.type || '').toLowerCase();
-  const candidates = DEP_OBJECT_TYPES[t] || [t.toUpperCase() + 'FLOW'];
-  let lastErr;
-  for (const objectType of candidates) {
-    try {
-      let page = 1, pageCount = 1, all = [];
-      do {
-        const q = new URLSearchParams({ id: flow.id, version, objectType, pageSize: '100', pageNumber: String(page) });
-        const d = await api(`/api/v2/architect/dependencytracking/consumedresources?${q}`);
-        all = all.concat(d.entities || []);
-        pageCount = d.pageCount || 1; page++;
-      } while (page <= pageCount);
-      return { version, groups: groupDeps(all) };
-    } catch (e) {
-      lastErr = e;
-      if (!(e.status === 400 && /not valid for parameter/i.test(e.message))) throw e; // try next candidate only for objectType rejections
-    }
-  }
-  throw new Error(`Dependency Tracking does not recognise flow type "${flow.type}" (tried ${candidates.join(', ')}).`);
 }
 
 /* ---------- export ---------- */
@@ -603,11 +579,12 @@ async function exportSelected() {
       const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
       const header = `# Flow: ${f.name}\n# Type: ${f.type}\n# Division: ${(f.division && f.division.name) || ''}\n# Exported: ${new Date().toISOString()}\n# Source: GET /api/v2/flows/${f.id}/latestconfiguration (Architect configuration rendered as YAML)\n`;
       download(`${safeName(f.name)}.${String(f.type || '').toLowerCase()}.yaml`, header + toYaml(cfg), 'application/x-yaml');
+      if (cfg && cfg.manifest) entry.groups = groupManifest(cfg.manifest);
+      else entry.error = 'The flow configuration has no manifest section, so its dependencies cannot be listed.';
     } catch (e) {
       failures.push(`${f.name}: ${e.message}`);
+      entry.error = 'Dependencies could not be read because the flow configuration could not be retrieved.';
     }
-    try { Object.assign(entry, await loadDeps(f)); }
-    catch (e) { entry.error = e.status === 404 ? 'No dependency data is available for this flow version yet (Architect may not have built its dependency index).' : e.message; }
     entry.loading = false;
     renderDeps();
     if (i < flows.length - 1) await sleep(350);
@@ -684,7 +661,7 @@ function renderDeps() {
     let inner;
     if (e.loading) inner = '<div class="none"><span class="spinner"></span>Waiting…</div>';
     else if (e.error) inner = `<div class="err">${esc(e.error)}</div>`;
-    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow does not consume any exportable configuration objects.</div>';
+    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow has no exportable dependent objects (milestones, outcomes, prompts, data actions, data tables and so on).</div>';
     else {
       inner = e.groups.map((g) => {
         const key = e.flow.id + '|' + g.label;
