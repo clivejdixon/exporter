@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Genesys Cloud Flow Exporter</title>
+<style>
+  :root {
+    --bg: #f5f7fb; --panel: #ffffff; --line: #e4e9f2; --text: #162033; --muted: #657089;
+    --blue: #2563eb; --blue-dark: #1d4ed8; --red: #b42318; --red-bg: #fef3f2; --green: #2f9d44;
+    --amber-bg: #fffaeb; --amber: #b54708; --row-alt: #eef1f8; --shadow: 0 10px 30px rgba(15,23,42,.08);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 700px at 15% 0%, #eef4ff 0%, var(--bg) 45%, #f8fafc 100%);
+    min-height: 100vh;
+  }
+  .app { max-width: 1600px; margin: 0 auto; padding: 12px; display: grid; gap: 12px; }
+  .panel { background: rgba(255,255,255,.88); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+  /* top bar */
+  .topbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 16px; padding: 14px 16px; }
+  .org { align-self: center; font-size: 14px; white-space: nowrap; }
+  .org strong { font-weight: 700; }
+  .field { display: grid; gap: 5px; min-width: 200px; }
+  .field.grow { flex: 1 1 320px; }
+  .field > span { font-weight: 700; font-size: 14px; }
+  input[type=text], select {
+    font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: #fff; color: var(--text); width: 100%;
+  }
+  input[type=text]:disabled, select:disabled { background: #f3f5fa; color: var(--muted); }
+  :focus-visible { outline: 3px solid rgba(37,99,235,.35); outline-offset: 1px; }
+  .btn {
+    font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: #f5f7fb; color: #44506b; white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: #eaeff8; }
+  .btn.primary { background: linear-gradient(180deg, #2f6fdc, #1f63cf); color: #fff; border-color: #1f63cf; }
+  .btn.primary:hover:not(:disabled) { background: linear-gradient(180deg, #2a64c8, #1b58b9); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .hint { padding: 0 16px 12px; font-size: 12.5px; color: var(--muted); }
+  .hint code { background: #eef1f8; padding: 1px 6px; border-radius: 6px; user-select: all; }
+
+  /* messages */
+  .msg { padding: 11px 14px; border-radius: 10px; font-size: 14px; border: 1px solid; white-space: pre-wrap; word-break: break-word; }
+  .msg.error { background: var(--red-bg); color: var(--red); border-color: #fecdca; }
+  .msg.info { background: #eff6ff; color: #1e429f; border-color: #bfdbfe; }
+  .msg.warn { background: var(--amber-bg); color: var(--amber); border-color: #fedf89; }
+
+  /* workspace */
+  .workspace { display: grid; grid-template-columns: 210px minmax(420px, 1.4fr) minmax(320px, 1fr); gap: 12px; align-items: start; }
+  @media (max-width: 1100px) { .workspace { grid-template-columns: 200px 1fr; } .side { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .workspace { grid-template-columns: 1fr; } }
+
+  .types { padding: 10px; }
+  .types-head {
+    width: 100%; text-align: left; font: inherit; font-size: 13px; font-weight: 700; background: none; border: 0;
+    padding: 6px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: var(--text);
+  }
+  .types-head .chev { color: var(--muted); font-size: 11px; }
+  .types ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 1px; }
+  .types li button {
+    width: 100%; text-align: left; font: inherit; font-size: 13px; padding: 7px 8px; background: none; border: 0;
+    border-radius: 8px; cursor: pointer; color: var(--text);
+  }
+  .types li button:hover { background: #eef1f8; }
+  .types li button[aria-current=true] { background: #e3ecff; color: #1e429f; font-weight: 700; }
+
+  .flows { overflow: hidden; }
+  .flows-bar { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .flows-bar input[type=text] { max-width: 280px; padding: 7px 10px; }
+  .flows-bar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+  .tablewrap { max-height: calc(100vh - 230px); min-height: 200px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { position: sticky; top: 0; background: #fff; text-align: left; font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--line); z-index: 1; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  tbody tr.sel { background: #dbe7ff; }
+  td.name { color: #1e429f; font-weight: 500; word-break: break-word; }
+  td.desc { color: var(--muted); max-width: 320px; word-break: break-word; }
+  th.chk, td.chk { width: 42px; padding-right: 0; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--blue); cursor: pointer; }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+
+  .side { padding: 14px; display: grid; gap: 12px; }
+  .side-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .side .note { font-size: 12.5px; color: var(--muted); margin: 0; }
+  .progress { font-size: 13px; color: var(--muted); }
+  .deps h2 { font-size: 14px; margin: 0; }
+  .deps-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+  .deps-head label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .flowdeps { border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: #fff; }
+  .flowdeps > h3 { margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--line); background: #f7f9fd; border-radius: 10px 10px 0 0; word-break: break-word; }
+  .flowdeps > .err { padding: 10px 12px; font-size: 13px; color: var(--red); }
+  .flowdeps > .none { padding: 10px 12px; font-size: 13px; color: var(--muted); }
+  .dtype { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .dtype:last-child { border-bottom: 0; }
+  .dtype-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .dtype-head .n { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .dtype.zero .dtype-head { color: var(--muted); font-weight: 400; }
+  .dtype ul { margin: 6px 0 2px 24px; padding: 0; list-style: none; font-size: 13px; display: grid; gap: 3px; }
+  .dtype li { word-break: break-word; }
+  .dtype li.deleted { color: var(--muted); text-decoration: line-through; }
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #c7d2fe; border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <section class="panel" aria-label="Connection">
+    <header class="topbar">
+      <div class="org" id="orgBadge" hidden>Org: <strong id="orgName"></strong></div>
+      <button class="btn primary" id="authBtn" type="button">Sign in to Genesys Cloud</button>
+      <label class="field grow">
+        <span>OAuth client ID</span>
+        <input type="text" id="clientId" placeholder="Paste the PKCE OAuth client ID" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="field">
+        <span>Genesys Cloud region</span>
+        <select id="region"></select>
+      </label>
+    </header>
+    <div class="hint">
+      Region and client ID are retained in this browser; the access token is session-only.
+      Redirect URI to register on the OAuth client: <code id="redirectUri"></code>
+    </div>
+  </section>
+
+  <div id="msg" role="alert" hidden></div>
+
+  <main class="workspace" id="workspace" hidden>
+    <aside class="panel types" aria-label="Flow types">
+      <button class="types-head" id="typesHead" type="button" aria-expanded="true">
+        <span>Flow Types</span><span class="chev" id="typesChev">▼</span>
+      </button>
+      <ul id="typeList"></ul>
+    </aside>
+
+    <section class="panel flows" aria-label="Flows">
+      <div id="flowsEmpty" class="empty">Select a flow type to list its flows.</div>
+      <div id="flowsBody" hidden>
+        <div class="flows-bar">
+          <input type="text" id="filter" placeholder="Filter by name, description or division" autocomplete="off" />
+          <span class="count" id="flowCount"></span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="chk"><input type="checkbox" id="selAll" aria-label="Select all listed flows" /></th>
+                <th>Name</th><th>Description</th><th>Division</th>
+              </tr>
+            </thead>
+            <tbody id="flowRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel side" aria-label="Export">
+      <div class="side-actions">
+        <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
+        <span class="progress" id="progress"></span>
+      </div>
+      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from Architect Dependency Tracking.</p>
+      <div class="deps" id="deps" hidden>
+        <div class="deps-head">
+          <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
+          <button class="btn" id="csvBtn" type="button">Download list (.csv)</button>
+        </div>
+        <div id="depBody"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- constants ---------- */
+const REGIONS = [
+  ['eu-west-1 (Ireland)', 'mypurecloud.ie'],
+  ['eu-west-2 (London)', 'euw2.pure.cloud'],
+  ['eu-central-1 (Frankfurt)', 'mypurecloud.de'],
+  ['eu-central-2 (Zurich)', 'euc2.pure.cloud'],
+  ['me-central-1 (UAE)', 'mec1.pure.cloud'],
+  ['ap-south-1 (Mumbai)', 'aps1.pure.cloud'],
+  ['us-east-1 (N. Virginia)', 'mypurecloud.com'],
+  ['us-east-2 (Ohio, FedRAMP)', 'use2.us-gov-pure.cloud'],
+  ['us-west-2 (Oregon)', 'usw2.pure.cloud'],
+  ['ca-central-1 (Canada)', 'cac1.pure.cloud'],
+  ['sa-east-1 (São Paulo)', 'sae1.pure.cloud'],
+  ['ap-southeast-2 (Sydney)', 'mypurecloud.com.au'],
+  ['ap-northeast-1 (Tokyo)', 'mypurecloud.jp'],
+  ['ap-northeast-2 (Seoul)', 'apne2.pure.cloud'],
+  ['ap-northeast-3 (Osaka)', 'apne3.pure.cloud'],
+];
+
+const FLOW_TYPES = [
+  ['Inbound Call', 'inboundcall'], ['Inbound Message', 'inboundshortmessage'], ['Inbound Email', 'inboundemail'],
+  ['Inbound Chat', 'inboundchat'], ['Outbound Call', 'outboundcall'], ['Bot Flow', 'bot'],
+  ['Digital Bot Flow', 'digitalbot'], ['Common Module', 'commonmodule'], ['In-Queue Call', 'inqueuecall'],
+  ['In-Queue Email', 'inqueueemail'], ['In-Queue Message', 'inqueueshortmessage'], ['Secure Call', 'securecall'],
+  ['Voicemail', 'voicemail'], ['Workflow', 'workflow'], ['Workitem Flow', 'workitem'],
+  ['Voice Survey', 'voice'], ['Web Survey Invite', 'surveyinvite'],
+];
+
+// Dependency categories shown in the panel (order = display order).
+const DEP_GROUPS = [
+  ['Milestones', /MILESTONE/], ['Outcomes', /OUTCOME/], ['Data Actions', /DATAACTION|INTEGRATIONACTION|CUSTOMACTION/],
+  ['Data Tables', /DATATABLE/], ['Queues', /QUEUE/], ['Skills', /SKILL/], ['Languages', /LANGUAGE/], ['Prompts', /PROMPT/],
+];
+
+const K = {
+  cfg: 'gcFlowExporter.config.v1',
+  token: 'gcFlowExporter.token.v1',
+  verifier: 'gcFlowExporter.verifier.v1',
+  state: 'gcFlowExporter.state.v1',
+};
+const REDIRECT_URI = location.origin + location.pathname;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const S = {
+  token: null, org: null, domain: null,
+  flowType: null, typesOpen: true, flows: [], selected: new Set(), loadSeq: 0, loading: false, loadError: false,
+  deps: new Map(),          // flowId -> {flow, groups:[{label,items[]}], error, loading}
+  depTypesOff: new Set(),   // category labels the user unticked
+  busy: false,
+};
+
+/* ---------- messages ---------- */
+function showMsg(text, kind = 'error') {
+  const m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; m.hidden = false;
+}
+function clearMsg() { $('msg').hidden = true; $('msg').textContent = ''; }
+
+/* ---------- config ---------- */
+function loadCfg() { try { return JSON.parse(localStorage.getItem(K.cfg) || '{}'); } catch { return {}; } }
+function saveCfg() {
+  localStorage.setItem(K.cfg, JSON.stringify({ clientId: $('clientId').value.trim(), domain: $('region').value }));
+}
+
+/* ---------- PKCE helpers ---------- */
+function b64url(buf) {
+  let s = ''; new Uint8Array(buf).forEach((b) => (s += String.fromCharCode(b)));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function randomString(len) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  const a = new Uint8Array(len); crypto.getRandomValues(a);
+  return Array.from(a, (x) => chars[x % chars.length]).join('');
+}
+async function pkcePair() {
+  const verifier = randomString(96);
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return { verifier, challenge: b64url(hash) };
+}
+
+const loginHost = () => `login.${S.domain}`;
+const apiHost = () => `api.${S.domain}`;
+
+function explainAuthError(code, desc) {
+  const known = {
+    access_denied: 'Access was denied. The sign-in was cancelled, or the user/OAuth client is not permitted to authorize this app.',
+    invalid_client: 'Genesys Cloud does not recognise this client ID for the selected region. Check the client ID and that the region matches the org.',
+    invalid_request: 'Genesys Cloud rejected the sign-in request. Check the client ID and that the redirect URI is registered on the OAuth client.',
+    invalid_grant: 'The authorization code was rejected (expired, already used, or the redirect URI does not match the OAuth client).',
+    unauthorized_client: 'This OAuth client is not allowed to use the Code Authorization (PKCE) grant.',
+    invalid_scope: 'The OAuth client does not have the scopes this app needs.',
+    server_error: 'Genesys Cloud reported a server error. Try again shortly.',
+  };
+  const base = known[code] || `Sign-in error "${code}".`;
+  return desc && desc !== code ? `${base}\nDetail from Genesys Cloud: ${desc}` : base;
+}
+
+function describeNetworkError(e, host) {
+  if (e instanceof TypeError) {
+    return `Could not reach ${host}. Check the selected region is correct for this org and that your network or browser is not blocking the request.`;
+  }
+  return e.message || String(e);
+}
+
+/* ---------- auth ---------- */
+async function signIn() {
+  clearMsg();
+  const clientId = $('clientId').value.trim();
+  if (!clientId) return showMsg('Paste the OAuth client ID first.');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId))
+    return showMsg('That does not look like a Genesys Cloud client ID (expected a GUID such as 584c1e79-568e-4d71-91ff-3e00bf01d04b).');
+  if (!window.crypto || !crypto.subtle)
+    return showMsg('This browser context cannot do PKCE (Web Crypto unavailable). Open the page over https:// or http://localhost.');
+  if (location.protocol === 'file:')
+    return showMsg('Genesys Cloud cannot redirect back to a file:// page. Host this file on https:// or http://localhost and register that URL as the redirect URI.');
+
+  saveCfg();
+  S.domain = $('region').value;
+  const { verifier, challenge } = await pkcePair();
+  const state = randomString(32);
+  sessionStorage.setItem(K.verifier, verifier);
+  sessionStorage.setItem(K.state, state);
+  const u = new URL(`https://${loginHost()}/oauth/authorize`);
+  u.search = new URLSearchParams({
+    response_type: 'code', client_id: clientId, redirect_uri: REDIRECT_URI,
+    code_challenge: challenge, code_challenge_method: 'S256', state,
+  }).toString();
+  $('authBtn').disabled = true; $('authBtn').textContent = 'Redirecting…';
+  location.href = u.toString();
+}
+
+async function tokenRequest(params) {
+  let res;
+  try {
+    res = await fetch(`https://${loginHost()}/oauth/token`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params),
+    });
+  } catch (e) { throw new Error(describeNetworkError(e, loginHost())); }
+  let data = {}; try { data = await res.json(); } catch { /* ignore */ }
+  if (!res.ok) {
+    const code = data.error || '';
+    const desc = data.error_description || data.message || '';
+    throw new Error(code ? explainAuthError(code, desc) : (desc || `Token request failed (HTTP ${res.status}).`));
+  }
+  return data;
+}
+
+async function refreshToken() {
+  const rt = S.token && S.token.refresh_token;
+  if (!rt) throw new Error('Session expired. Please sign in again.');
+  const data = await tokenRequest({ grant_type: 'refresh_token', client_id: $('clientId').value.trim(), refresh_token: rt });
+  S.token = { ...S.token, ...data };
+  sessionStorage.setItem(K.token, JSON.stringify(S.token));
+}
+
+async function api(path, opts = {}, tries = 0, refreshed = false) {
+  if (!S.token) throw new Error('Not signed in.');
+  let res;
+  try {
+    res = await fetch(`https://${apiHost()}${path}`, {
+      ...opts, headers: { Authorization: `Bearer ${S.token.access_token}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+  } catch (e) { throw new Error(describeNetworkError(e, apiHost())); }
+
+  if (res.status === 401 && !refreshed) {
+    try { await refreshToken(); } catch (e) { sessionExpired(); throw new Error('Your session has expired. Please sign in again.'); }
+    return api(path, opts, tries, true);
+  }
+  if (res.status === 429 && tries < 4) {
+    const wait = (parseFloat(res.headers.get('Retry-After')) || 2) * 1000;
+    await sleep(wait);
+    return api(path, opts, tries + 1, refreshed);
+  }
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const e = new Error((data && (data.message || data.error_description || data.error)) || `Request failed (HTTP ${res.status}).`);
+    e.status = res.status; e.code = data && data.code; throw e;
+  }
+  return data;
+}
+
+async function completeSignInFromRedirect() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has('code') && !p.has('error')) return false;
+  history.replaceState({}, document.title, location.pathname);
+  try {
+    if (p.get('error')) throw new Error(explainAuthError(p.get('error'), p.get('error_description')));
+    if (!p.get('code')) throw new Error('Genesys Cloud did not return an authorization code.');
+    if (p.get('state') !== sessionStorage.getItem(K.state))
+      throw new Error('The sign-in response did not match this browser session (state check failed). Please try again.');
+    const verifier = sessionStorage.getItem(K.verifier);
+    if (!verifier) throw new Error('The PKCE verifier was lost (the browser session was cleared). Please try again.');
+    S.token = await tokenRequest({
+      grant_type: 'authorization_code', client_id: $('clientId').value.trim(), code: p.get('code'),
+      redirect_uri: REDIRECT_URI, code_verifier: verifier,
+    });
+    sessionStorage.setItem(K.token, JSON.stringify(S.token));
+    await loadOrg();
+    return true;
+  } catch (e) {
+    clearSession();
+    showMsg('Sign-in failed: ' + e.message);
+    return true;
+  } finally {
+    sessionStorage.removeItem(K.verifier); sessionStorage.removeItem(K.state);
+  }
+}
+
+async function loadOrg() {
+  try {
+    const org = await api('/api/v2/organizations/me');
+    S.org = org.thirdPartyOrgName || org.name || org.id;
+  } catch (e) {
+    throw new Error('Signed in, but the organization could not be read: ' + e.message);
+  }
+}
+
+async function restoreSession() {
+  try { S.token = JSON.parse(sessionStorage.getItem(K.token) || 'null'); } catch { S.token = null; }
+  if (!S.token) return;
+  try { await loadOrg(); }
+  catch (e) { clearSession(); showMsg('Your previous session is no longer valid. Please sign in again.', 'warn'); }
+}
+
+function clearSession() {
+  S.token = null; S.org = null;
+  sessionStorage.removeItem(K.token);
+  Object.assign(S, { flowType: null, flows: [], selected: new Set(), deps: new Map(), typesOpen: true, loadSeq: S.loadSeq + 1, loading: false, loadError: false });
+  renderAll();
+}
+function sessionExpired() {
+  clearSession(); showMsg('Your session has expired. Please sign in again.', 'warn');
+}
+
+async function signOut() {
+  clearMsg();
+  const t = S.token;
+  if (t) { try { await fetch(`https://${apiHost()}/api/v2/tokens/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${t.access_token}` } }); } catch { /* best effort */ } }
+  clearSession();
+}
+
+/* ---------- flows ---------- */
+async function selectFlowType(value) {
+  clearMsg();
+  const seq = ++S.loadSeq;
+  Object.assign(S, { flowType: value, typesOpen: false, flows: [], selected: new Set(), deps: new Map(), loading: true, loadError: false });
+  $('filter').value = '';
+  renderAll();
+  try {
+    let page = 1, all = [], pageCount = 1;
+    do {
+      const d = await api(`/api/v2/flows?type=${encodeURIComponent(value)}&pageSize=100&pageNumber=${page}`);
+      all = all.concat(d.entities || []);
+      pageCount = d.pageCount || 1;
+      page++;
+    } while (page <= pageCount);
+    if (seq !== S.loadSeq) return;
+    all.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+    S.flows = all; S.loading = false;
+  } catch (e) {
+    if (seq !== S.loadSeq) return;
+    S.loading = false; S.loadError = true;
+    showMsg('Could not list flows: ' + e.message + (e.status === 403 ? '\nThe signed-in user needs Architect > Flow > View, and the OAuth client needs the matching scope.' : ''));
+  }
+  renderAll();
+}
+
+function visibleFlows() {
+  const q = $('filter').value.trim().toLowerCase();
+  if (!q) return S.flows;
+  return S.flows.filter((f) => [f.name, f.description, f.division && f.division.name].some((v) => (v || '').toLowerCase().includes(q)));
+}
+
+/* ---------- YAML ---------- */
+function yamlKey(k) { return /^[A-Za-z_][A-Za-z0-9_.\-]*$/.test(k) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(k) ? k : JSON.stringify(k); }
+function yamlScalar(v) {
+  if (v === null || v === undefined) return 'null';
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  const s = String(v);
+  if (s === '') return "''";
+  const risky = /^[\s\-?:,\[\]{}#&*!|>'"%@`.+\d~]|\s$|: |\s#|:$|[\n\r\t]/.test(s) || /^(true|false|null|yes|no|on|off|y|n)$/i.test(s);
+  return risky ? JSON.stringify(s) : s;
+}
+function yamlLines(v, depth) {
+  const pad = '  '.repeat(depth);
+  const isColl = (x) => x !== null && typeof x === 'object';
+  const isEmpty = (x) => (Array.isArray(x) ? x.length === 0 : Object.keys(x).length === 0);
+  const inline = (x) => (!isColl(x) ? yamlScalar(x) : Array.isArray(x) ? '[]' : '{}');
+  const out = [];
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      if (!isColl(item) || isEmpty(item)) { out.push(`${pad}- ${inline(item)}`); continue; }
+      const sub = yamlLines(item, depth + 1);
+      sub[0] = pad + '- ' + sub[0].slice((depth + 1) * 2);
+      out.push(...sub);
+    }
+  } else {
+    for (const k of Object.keys(v)) {
+      const val = v[k];
+      if (!isColl(val) || isEmpty(val)) out.push(`${pad}${yamlKey(k)}: ${inline(val)}`);
+      else { out.push(`${pad}${yamlKey(k)}:`); out.push(...yamlLines(val, depth + 1)); }
+    }
+  }
+  return out;
+}
+function toYaml(obj) {
+  if (obj === null || typeof obj !== 'object') return yamlScalar(obj) + '\n';
+  if ((Array.isArray(obj) ? obj.length : Object.keys(obj).length) === 0) return (Array.isArray(obj) ? '[]' : '{}') + '\n';
+  return yamlLines(obj, 0).join('\n') + '\n';
+}
+
+function download(filename, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const safeName = (s) => String(s || 'flow').replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'flow';
+
+/* ---------- dependencies ---------- */
+function groupDeps(entities) {
+  const groups = DEP_GROUPS.map(([label]) => ({ label, items: [] }));
+  const other = new Map();
+  for (const d of entities) {
+    const t = String(d.type || '').toUpperCase().replace(/[^A-Z]/g, '');
+    const idx = DEP_GROUPS.findIndex(([, re]) => re.test(t));
+    if (idx >= 0) groups[idx].items.push(d);
+    else {
+      const label = `Other (${String(d.type || 'unknown').toLowerCase()})`;
+      if (!other.has(label)) other.set(label, { label, items: [] });
+      other.get(label).items.push(d);
+    }
+  }
+  groups.forEach((g) => g.items.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })));
+  return groups.concat([...other.values()].sort((a, b) => a.label.localeCompare(b.label)));
+}
+
+async function loadDeps(flow) {
+  const version = (flow.publishedVersion || flow.checkedInVersion || flow.savedVersion || {}).id;
+  if (!version) throw new Error('This flow has no published or checked-in version, so there is nothing to track dependencies for.');
+  let page = 1, pageCount = 1, all = [];
+  do {
+    const q = new URLSearchParams({ id: flow.id, version, objectType: 'FLOW', pageSize: '100', pageNumber: String(page) });
+    const d = await api(`/api/v2/architect/dependencytracking/consumedresources?${q}`);
+    all = all.concat(d.entities || []);
+    pageCount = d.pageCount || 1; page++;
+  } while (page <= pageCount);
+  return { version, groups: groupDeps(all) };
+}
+
+/* ---------- export ---------- */
+async function exportSelected() {
+  if (S.busy) return;
+  const flows = S.flows.filter((f) => S.selected.has(f.id));
+  if (!flows.length) return;
+  clearMsg();
+  S.busy = true; S.deps = new Map();
+  flows.forEach((f) => S.deps.set(f.id, { flow: f, loading: true }));
+  renderAll();
+  const failures = [];
+  for (let i = 0; i < flows.length; i++) {
+    const f = flows[i];
+    $('progress').innerHTML = `<span class="spinner"></span>Exporting ${i + 1} of ${flows.length}: ${esc(f.name)}`;
+    const entry = S.deps.get(f.id);
+    try {
+      const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
+      const header = `# Flow: ${f.name}\n# Type: ${f.type}\n# Division: ${(f.division && f.division.name) || ''}\n# Exported: ${new Date().toISOString()}\n# Source: GET /api/v2/flows/${f.id}/latestconfiguration (Architect configuration rendered as YAML)\n`;
+      download(`${safeName(f.name)}.${String(f.type || '').toLowerCase()}.yaml`, header + toYaml(cfg), 'application/x-yaml');
+    } catch (e) {
+      failures.push(`${f.name}: ${e.message}`);
+    }
+    try { Object.assign(entry, await loadDeps(f)); }
+    catch (e) { entry.error = e.status === 404 ? 'No dependency data is available for this flow version yet (Architect may not have built its dependency index).' : e.message; }
+    entry.loading = false;
+    renderDeps();
+    if (i < flows.length - 1) await sleep(350);
+  }
+  S.busy = false;
+  $('progress').textContent = failures.length ? '' : `Exported ${flows.length} flow${flows.length === 1 ? '' : 's'}.`;
+  if (failures.length) showMsg('Some flows could not be exported:\n' + failures.join('\n') + (failures.some((x) => /403|permission|scope/i.test(x)) ? '\nCheck the user role and the OAuth client scopes (Architect).' : ''));
+  renderAll();
+}
+
+function downloadCsv() {
+  const rows = [['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version']];
+  for (const e of S.deps.values()) {
+    (e.groups || []).filter((g) => !S.depTypesOff.has(g.label)).forEach((g) =>
+      g.items.forEach((d) => rows.push([e.flow.name, e.flow.type, g.label, d.name, d.id, d.version || ''])));
+  }
+  const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  download('flow_dependencies.csv', csv, 'text/csv');
+}
+
+/* ---------- rendering ---------- */
+function renderAuth() {
+  const on = !!S.token;
+  $('authBtn').textContent = on ? 'Sign out / change environment' : 'Sign in to Genesys Cloud';
+  $('authBtn').classList.toggle('primary', !on);
+  $('authBtn').disabled = false;
+  $('clientId').disabled = on; $('region').disabled = on;
+  $('orgBadge').hidden = !on;
+  $('orgName').textContent = S.org || '';
+  $('workspace').hidden = !on;
+}
+
+function renderTypes() {
+  const ul = $('typeList'); ul.innerHTML = '';
+  const list = S.typesOpen || !S.flowType ? FLOW_TYPES : FLOW_TYPES.filter(([, v]) => v === S.flowType);
+  for (const [label, value] of list) {
+    const li = document.createElement('li'); const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label; b.dataset.type = value;
+    if (value === S.flowType) b.setAttribute('aria-current', 'true');
+    li.appendChild(b); ul.appendChild(li);
+  }
+  $('typesHead').setAttribute('aria-expanded', String(S.typesOpen));
+  $('typesChev').textContent = S.typesOpen ? '▼' : '▶';
+}
+
+function renderFlows() {
+  const empty = $('flowsEmpty'), body = $('flowsBody');
+  const showEmpty = (html) => { empty.hidden = false; empty.innerHTML = html; body.hidden = true; };
+  if (!S.flowType) return showEmpty('Select a flow type to list its flows.');
+  if (S.loading) return showEmpty('<span class="spinner"></span>Loading flows…');
+  if (S.loadError) return showEmpty('Flows could not be loaded.');
+  if (!S.flows.length) return showEmpty('No flows of this type were found in this org.');
+  empty.hidden = true; body.hidden = false;
+  const vis = visibleFlows();
+  const rows = vis.map((f) => `
+    <tr class="${S.selected.has(f.id) ? 'sel' : ''}">
+      <td class="chk"><input type="checkbox" data-id="${esc(f.id)}" ${S.selected.has(f.id) ? 'checked' : ''} aria-label="Select ${esc(f.name)}"></td>
+      <td class="name">${esc(f.name)}</td>
+      <td class="desc">${esc(f.description || '')}</td>
+      <td>${esc((f.division && f.division.name) || '')}</td>
+    </tr>`).join('');
+  $('flowRows').innerHTML = rows || '<tr><td colspan="4" class="empty">No flows match the filter.</td></tr>';
+  $('flowCount').textContent = `${vis.length} of ${S.flows.length} flows, ${S.selected.size} selected`;
+  const selVis = vis.filter((f) => S.selected.has(f.id)).length;
+  const all = $('selAll'); all.checked = vis.length > 0 && selVis === vis.length; all.indeterminate = selVis > 0 && selVis < vis.length;
+}
+
+function renderDeps() {
+  const box = $('deps');
+  if (!S.deps.size) { box.hidden = true; return; }
+  box.hidden = false;
+  const parts = [];
+  for (const e of S.deps.values()) {
+    let inner;
+    if (e.loading) inner = '<div class="none"><span class="spinner"></span>Waiting…</div>';
+    else if (e.error) inner = `<div class="err">${esc(e.error)}</div>`;
+    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow does not consume any tracked configuration objects.</div>';
+    else {
+      inner = e.groups.map((g) => {
+        const on = !S.depTypesOff.has(g.label);
+        const names = on && g.items.length
+          ? `<ul>${g.items.map((d) => `<li class="${d.deleted ? 'deleted' : ''}">${esc(d.name || d.id)}</li>`).join('')}</ul>` : '';
+        return `<div class="dtype ${g.items.length ? '' : 'zero'}">
+          <label class="dtype-head"><input type="checkbox" data-dtype="${esc(g.label)}" ${on ? 'checked' : ''}> ${esc(g.label)}<span class="n">${g.items.length}</span></label>${names}</div>`;
+      }).join('');
+    }
+    parts.push(`<div class="flowdeps"><h3>${esc(e.flow.name)}</h3>${inner}</div>`);
+  }
+  $('depBody').innerHTML = parts.join('');
+  const labels = new Set(); S.deps.forEach((e) => (e.groups || []).forEach((g) => labels.add(g.label)));
+  const offCount = [...labels].filter((l) => S.depTypesOff.has(l)).length;
+  $('depAll').checked = offCount === 0; $('depAll').indeterminate = offCount > 0 && offCount < labels.size;
+  $('csvBtn').disabled = ![...S.deps.values()].some((e) => e.groups);
+}
+
+function renderExport() {
+  $('exportBtn').disabled = S.busy || S.selected.size === 0;
+  $('exportBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to YAML` : 'Export to YAML';
+}
+
+function renderAll() { renderAuth(); renderTypes(); renderFlows(); renderDeps(); renderExport(); }
+
+/* ---------- events ---------- */
+function wire() {
+  $('authBtn').addEventListener('click', () => (S.token ? signOut() : signIn().catch((e) => { $('authBtn').disabled = false; showMsg(e.message); })));
+  $('clientId').addEventListener('input', saveCfg);
+  $('region').addEventListener('change', saveCfg);
+  $('clientId').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authBtn').click(); });
+
+  $('typesHead').addEventListener('click', () => { S.typesOpen = !S.typesOpen; renderTypes(); });
+  $('typeList').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-type]'); if (!b) return;
+    selectFlowType(b.dataset.type);
+  });
+
+  $('filter').addEventListener('input', renderFlows);
+  $('flowRows').addEventListener('change', (e) => {
+    const id = e.target.dataset && e.target.dataset.id; if (!id) return;
+    e.target.checked ? S.selected.add(id) : S.selected.delete(id);
+    renderFlows(); renderExport();
+  });
+  $('selAll').addEventListener('change', (e) => {
+    visibleFlows().forEach((f) => (e.target.checked ? S.selected.add(f.id) : S.selected.delete(f.id)));
+    renderFlows(); renderExport();
+  });
+  $('exportBtn').addEventListener('click', exportSelected);
+  $('csvBtn').addEventListener('click', downloadCsv);
+  $('depBody').addEventListener('change', (e) => {
+    const t = e.target.dataset && e.target.dataset.dtype; if (t === undefined) return;
+    e.target.checked ? S.depTypesOff.delete(t) : S.depTypesOff.add(t);
+    renderDeps();
+  });
+  $('depAll').addEventListener('change', (e) => {
+    const labels = new Set(); S.deps.forEach((x) => (x.groups || []).forEach((g) => labels.add(g.label)));
+    labels.forEach((l) => (e.target.checked ? S.depTypesOff.delete(l) : S.depTypesOff.add(l)));
+    renderDeps();
+  });
+}
+
+/* ---------- boot ---------- */
+async function init() {
+  const sel = $('region');
+  sel.innerHTML = REGIONS.map(([label, dom]) => `<option value="${dom}">${esc(label)}</option>`).join('');
+  const cfg = loadCfg();
+  if (cfg.clientId) $('clientId').value = cfg.clientId;
+  if (cfg.domain && REGIONS.some(([, d]) => d === cfg.domain)) sel.value = cfg.domain;
+  S.domain = sel.value;
+  $('redirectUri').textContent = REDIRECT_URI;
+  wire();
+  renderAll();
+
+  const handled = await completeSignInFromRedirect();
+  if (!handled) await restoreSession();
+  renderAll();
+}
+init();
+})();
+</script>
+</body>
+</html>
