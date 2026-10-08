@@ -4,190 +4,200 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Genesys Cloud Flow Exporter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg: #f5f7fb; --panel: #ffffff; --line: #e4e9f2; --text: #162033; --muted: #657089;
-    --blue: #2563eb; --blue-dark: #1d4ed8; --red: #b42318; --red-bg: #fef3f2; --green: #2f9d44;
-    --amber-bg: #fffaeb; --amber: #b54708; --row-alt: #eef1f8; --shadow: 0 10px 30px rgba(15,23,42,.08);
-    --radius: 14px;
+    --paper: #FAF7F6; --navy: #122550; --navy-deep: #0C1B3E; --orange: #FF5618; --orange-ink: #C93D0C; --amber: #FF9002;
+    --cyan: #69CEEA; --green: #5EC553; --green-ink: #1E7A32; --blue: #2B4E9A; --mute: #56627F; --line: #E7E1DE;
+    --red: #B42318; --red-bg: #FEF3F2;
+    --grad: linear-gradient(105deg, #FF9A00 0%, #FF5A1A 50%, #F5530F 60%, #5BCBEE 100%);
+    --ring: linear-gradient(135deg, #FF9002, #FF5618 55%, #69CEEA);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body {
-    margin: 0; color: var(--text);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: radial-gradient(1200px 700px at 15% 0%, #eef4ff 0%, var(--bg) 45%, #f8fafc 100%);
-    min-height: 100vh;
-  }
-  .app { max-width: 1600px; margin: 0 auto; padding: 12px; display: grid; gap: 12px; }
-  .panel { background: rgba(255,255,255,.88); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+  body { margin: 0; color: var(--navy); background: var(--paper); font-family: 'Mulish', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  :focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
 
-  /* top bar */
-  .topbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 16px; padding: 14px 16px; }
-  .org { align-self: center; font-size: 14px; white-space: nowrap; }
-  .org strong { font-weight: 700; }
-  .field { display: grid; gap: 5px; min-width: 200px; }
-  .field.grow { flex: 1 1 320px; }
-  .field > span { font-weight: 700; font-size: 14px; }
-  input[type=text], select {
-    font: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
-    background: #fff; color: var(--text); width: 100%;
-  }
-  input[type=text]:disabled, select:disabled { background: #f3f5fa; color: var(--muted); }
-  :focus-visible { outline: 3px solid rgba(37,99,235,.35); outline-offset: 1px; }
-  .btn {
-    font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 10px; cursor: pointer;
-    border: 1px solid var(--line); background: #f5f7fb; color: #44506b; white-space: nowrap;
-  }
-  .btn:hover:not(:disabled) { background: #eaeff8; }
-  .btn.primary { background: linear-gradient(180deg, #2f6fdc, #1f63cf); color: #fff; border-color: #1f63cf; }
-  .btn.primary:hover:not(:disabled) { background: linear-gradient(180deg, #2a64c8, #1b58b9); }
-  .btn:disabled { opacity: .5; cursor: not-allowed; }
-  .hint { padding: 0 16px 12px; font-size: 12.5px; color: var(--muted); }
-  .hint code { background: #eef1f8; padding: 1px 6px; border-radius: 6px; user-select: all; }
+  .app { display: grid; grid-template-columns: 290px minmax(0, 1fr); min-height: 100vh; }
 
-  /* messages */
-  .msg { padding: 11px 14px; border-radius: 10px; font-size: 14px; border: 1px solid; white-space: pre-wrap; word-break: break-word; }
-  .msg.error { background: var(--red-bg); color: var(--red); border-color: #fecdca; }
-  .msg.info { background: #eff6ff; color: #1e429f; border-color: #bfdbfe; }
-  .msg.warn { background: var(--amber-bg); color: var(--amber); border-color: #fedf89; }
+  /* ---- navy rail ---- */
+  .rail { background: var(--navy); color: #EAEEF5; padding: 18px 18px 22px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .logo { background: var(--paper); border-radius: 14px; padding: 12px 14px; display: flex; justify-content: center; }
+  .logo img { display: block; height: 33px; width: auto; }
+  .appname { font-weight: 800; font-size: 18px; letter-spacing: -.01em; color: #fff; padding: 2px 4px 0; }
+  .org { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: rgba(94,197,83,.18); color: #BDF2B6; font-size: 13.5px; font-weight: 700; }
+  .org::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(94,197,83,.3); }
+  .field { display: grid; gap: 5px; min-width: 0; }
+  .field > span { font-size: 13px; font-weight: 700; color: #C9D2E6; }
+  .rail input[type=text], .rail select { font: inherit; font-size: 14px; padding: 10px 13px; border-radius: 12px; width: 100%; color: #fff; background: rgba(255,255,255,.08); border: 1.5px solid rgba(255,255,255,.2); }
+  .rail select option { color: var(--navy); }
+  .rail input:disabled, .rail select:disabled { opacity: .75; }
+  .railnote { margin: 0; font-size: 12px; color: #A9B6D3; line-height: 1.45; }
+  .railnote code { display: block; margin-top: 4px; background: rgba(255,255,255,.08); color: #E3E9F7; padding: 5px 8px; border-radius: 8px; word-break: break-all; user-select: all; font-size: 11.5px; }
+  .redir { margin-top: auto; }
 
-  /* workspace */
-  .workspace { display: grid; grid-template-columns: 210px minmax(420px, 1.4fr) minmax(320px, 1fr); gap: 12px; align-items: start; }
-  @media (max-width: 1100px) { .workspace { grid-template-columns: 200px 1fr; } .side { grid-column: 1 / -1; } }
-  @media (max-width: 720px) { .workspace { grid-template-columns: 1fr; } }
+  /* ---- buttons ---- */
+  .btn { font: inherit; font-size: 14px; font-weight: 800; padding: 11px 20px; border-radius: 999px; cursor: pointer; white-space: nowrap; border: 2px solid transparent; color: var(--navy); background: #fff; transition: transform .12s, box-shadow .12s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; filter: saturate(.5); }
+  .btn.primary { background: var(--grad); color: #fff; text-shadow: 0 1px 2px rgba(18,37,80,.4); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,86,24,.28), 0 8px 18px rgba(255,86,24,.35); }
+  .btn.primary:hover:not(:disabled) { box-shadow: 0 0 0 2px rgba(255,86,24,.5), 0 10px 22px rgba(255,86,24,.45); }
+  .rail .btn { width: 100%; white-space: normal; line-height: 1.25; }
+  .rail .btn:not(.primary) { background: transparent; color: #fff; border-color: rgba(255,255,255,.6); }
+  .content .btn:not(.primary) { background: #fff; border-color: var(--navy); }
+  .btn.small { padding: 7px 14px; font-size: 12.5px; }
 
-  .types { padding: 10px; }
-  .types-head {
-    width: 100%; text-align: left; font: inherit; font-size: 13px; font-weight: 700; background: none; border: 0;
-    padding: 6px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: var(--text);
-  }
-  .types-head .chev { color: var(--muted); font-size: 11px; }
-  .types ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 1px; }
-  .types li button {
-    width: 100%; text-align: left; font: inherit; font-size: 13px; padding: 7px 8px; background: none; border: 0;
-    border-radius: 8px; cursor: pointer; color: var(--text);
-  }
-  .types li button:hover { background: #eef1f8; }
-  .types li button[aria-current=true] { background: #e3ecff; color: #1e429f; font-weight: 700; }
+  /* ---- flow types ---- */
+  .types { margin-top: 2px; }
+  .types-head { width: 100%; text-align: left; font: inherit; font-size: 13px; font-weight: 800; background: none; border: 0; padding: 6px 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #C9D2E6; }
+  .types-head .chev { font-size: 10px; }
+  .types ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+  .types li button { width: 100%; text-align: left; font: inherit; font-size: 14px; font-weight: 600; padding: 9px 14px; border-radius: 999px; cursor: pointer; color: #EAEEF5; background: none; border: 2px solid transparent; }
+  .types li button:hover { background: rgba(255,255,255,.09); }
+  .types li button[aria-current=true] { background: var(--grad); color: #fff; font-weight: 800; border-color: #fff; text-shadow: 0 1px 2px rgba(18,37,80,.4); box-shadow: 0 0 0 2px rgba(255,86,24,.35), 0 8px 18px rgba(255,86,24,.4); }
 
-  .flows { overflow: hidden; }
-  .flows-bar { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  .flows-bar input[type=text] { max-width: 280px; padding: 7px 10px; }
-  .flows-bar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
-  .tablewrap { max-height: calc(100vh - 230px); min-height: 200px; overflow: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { position: sticky; top: 0; background: #fff; text-align: left; font-weight: 700; padding: 10px 12px; border-bottom: 1px solid var(--line); z-index: 1; }
-  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tbody tr:nth-child(even) { background: var(--row-alt); }
-  tbody tr.sel { background: #dbe7ff; }
-  td.name { color: #1e429f; font-weight: 500; word-break: break-word; }
-  td.desc { color: var(--muted); max-width: 320px; word-break: break-word; }
-  th.chk, td.chk { width: 42px; padding-right: 0; }
-  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--blue); cursor: pointer; }
-  .empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+  /* ---- content ---- */
+  .content { padding: 22px 26px 30px; min-width: 0; display: grid; gap: 14px; align-content: start; }
+  .msg { padding: 12px 16px; border-radius: 14px; font-size: 14px; border: 1px solid; white-space: pre-wrap; word-break: break-word; }
+  .msg.error { background: var(--red-bg); color: var(--red); border-color: #FECDCA; }
+  .msg.info { background: #EFF6FF; color: #1E429F; border-color: #BFDBFE; }
+  .msg.warn { background: #FFFAEB; color: #B54708; border-color: #FEDF89; }
+  .welcome { display: grid; gap: 8px; place-content: center; text-align: center; min-height: 60vh; }
+  .welcome h2 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+  .welcome p { margin: 0 auto; color: var(--mute); max-width: 46ch; }
+  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+  @media (max-width: 1250px) { .workspace { grid-template-columns: 1fr; } }
+  @media (max-width: 800px) { .app { grid-template-columns: 1fr; } .rail { position: static; height: auto; } }
 
-  .side { padding: 14px; display: grid; gap: 12px; }
-  .side-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .side .note { font-size: 12.5px; color: var(--muted); margin: 0; }
-  .progress { font-size: 13px; color: var(--muted); }
-  .deps h2 { font-size: 14px; margin: 0; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+  .flows-title { margin: 0 0 4px; font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+  .flows-bar { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .flows-bar input[type=text] { font: inherit; font-size: 14px; padding: 9px 15px; border-radius: 999px; border: 1.5px solid var(--line); width: 100%; max-width: 340px; color: var(--navy); }
+  .flows-bar .count { margin-left: auto; font-size: 13px; color: var(--mute); font-weight: 700; }
+  .tablewrap { max-height: calc(100vh - 210px); min-height: 200px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { position: sticky; top: 0; background: #fff; text-align: left; font-weight: 800; padding: 11px 14px; border-bottom: 2px solid var(--line); z-index: 1; }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:nth-child(even) { background: #F6F2F0; }
+  tbody tr.sel { background: #FFEBE2; box-shadow: inset 4px 0 0 var(--orange); }
+  td.name { color: var(--blue); font-weight: 700; word-break: break-word; }
+  td.desc { color: var(--mute); max-width: 320px; word-break: break-word; }
+  th.chk, td.chk { width: 44px; padding-right: 0; }
+  input[type=checkbox] { width: 17px; height: 17px; accent-color: #E8501A; cursor: pointer; vertical-align: -3px; }
+  .dtype input[type=checkbox], .deps-head input[type=checkbox] { flex: none; }
+  .empty { padding: 36px 16px; text-align: center; color: var(--mute); font-size: 14px; }
+
+  /* ---- export side ---- */
+  .side { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 18px; display: grid; gap: 14px; position: sticky; top: 16px; }
+  .side h2 { margin: 0; font-size: 18px; font-weight: 800; }
+  .side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; }
+  .side-actions .btn { padding: 12px 8px; white-space: normal; line-height: 1.2; }
+  .progress { grid-column: 1 / -1; font-size: 13px; color: var(--mute); min-height: 0; }
+  .progress:empty { display: none; }
+  .side .note { font-size: 12.5px; color: var(--mute); margin: 0; line-height: 1.5; }
+  .side code { background: #EEF1F8; padding: 1px 5px; border-radius: 5px; }
   .deps-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
-  .deps-head label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .flowdeps { border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: #fff; }
-  .flowdeps > h3 { margin: 0; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--line); background: #f7f9fd; border-radius: 10px 10px 0 0; word-break: break-word; }
-  .flowdeps > .err { padding: 10px 12px; font-size: 13px; color: var(--red); }
-  .flowdeps > .none { padding: 10px 12px; font-size: 13px; color: var(--muted); }
+  .deps-head > label { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 800; }
+  .deps-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .flowdeps { border: 1px solid var(--line); border-radius: 16px; margin-top: 10px; background: #fff; overflow: hidden; }
+  .flowdeps > h3 { margin: 0; padding: 10px 14px; font-size: 13.5px; border-bottom: 1px solid var(--line); background: #F7F4F2; word-break: break-word; }
+  .flowdeps > .err { padding: 10px 14px; font-size: 13px; color: var(--red); }
+  .flowdeps > .none { padding: 10px 14px; font-size: 13px; color: var(--mute); }
   .dtype { padding: 6px 12px 6px 6px; border-bottom: 1px solid var(--line); }
   .dtype:last-child { border-bottom: 0; }
-  .dtype-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-  .deps-btns { display: flex; gap: 6px; }
-  .btn.small { padding: 6px 12px; font-size: 12.5px; }
-  .dtype-head label { display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; font-weight: inherit; }
-  .dtype li label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 400; }
-  .side-actions code, .note code { background: #eef1f8; padding: 1px 5px; border-radius: 5px; }
-  .twisty { font: inherit; font-size: 10px; width: 24px; height: 24px; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; flex: none; }
-  .twisty:hover:not(:disabled) { background: #eef1f8; color: var(--text); }
-  .twisty:disabled { opacity: .3; cursor: default; }
-  .dtype-head .n { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 12px; }
-  .dtype.zero .dtype-head { color: var(--muted); font-weight: 400; }
-  .dtype ul { margin: 4px 0 4px 56px; padding: 0; list-style: none; font-size: 13px; display: grid; gap: 3px; }
+  .dtype-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; }
+  .dtype-head label { display: flex; align-items: center; gap: 9px; cursor: pointer; flex: 1; font-weight: inherit; }
+  .dtype-head .n { margin-left: auto; font-weight: 800; color: var(--navy); font-size: 12px; background: #EEF1F8; border-radius: 999px; padding: 2px 9px; }
+  .dtype.zero .dtype-head { color: var(--mute); font-weight: 600; }
+  .dtype.zero .oi { opacity: .45; filter: grayscale(.6); }
+  .dtype ul { margin: 4px 0 6px 58px; padding: 0; list-style: none; font-size: 13px; display: grid; gap: 5px; }
   .dtype li { word-break: break-word; }
-  .dtype li.deleted { color: var(--muted); text-decoration: line-through; }
-  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #c7d2fe; border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  .dtype li label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
+  .dtype li.deleted { color: var(--mute); text-decoration: line-through; }
+  .twisty { font: inherit; font-size: 10px; width: 24px; height: 24px; border: 0; background: none; color: var(--mute); border-radius: 6px; cursor: pointer; flex: none; }
+  .twisty:hover:not(:disabled) { background: #EEF1F8; color: var(--navy); }
+  .twisty:disabled { opacity: .3; cursor: default; }
+
+  /* ---- object-type icon: white ring badge, gradient rim, orange glyph, cyan accent ---- */
+  .oi { width: 30px; height: 30px; flex: none; display: inline-grid; place-items: center; border-radius: 50%; border: 2px solid transparent;
+    background: linear-gradient(#fff, #fff) padding-box, var(--ring) border-box; box-shadow: 0 2px 7px rgba(18,37,80,.2); }
+  .oi svg { width: 16px; height: 16px; fill: none; stroke: var(--orange); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .oi svg .ac { fill: #37B5E0; stroke: none; }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #C7D2FE; border-top-color: var(--orange); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .btn { transition: none; } }
 </style>
 </head>
 <body>
 <div class="app">
-
-  <section class="panel" aria-label="Connection">
-    <header class="topbar">
-      <div class="org" id="orgBadge" hidden>Org: <strong id="orgName"></strong></div>
-      <button class="btn primary" id="authBtn" type="button">Sign in to Genesys Cloud</button>
-      <label class="field grow">
-        <span>OAuth client ID</span>
-        <input type="text" id="clientId" placeholder="Paste the PKCE OAuth client ID" autocomplete="off" spellcheck="false" />
-      </label>
-      <label class="field">
-        <span>Genesys Cloud region</span>
-        <select id="region"></select>
-      </label>
-    </header>
-    <div class="hint">
-      Region and client ID are retained in this browser; the access token is session-only.
-      Redirect URI to register on the OAuth client: <code id="redirectUri"></code>
-    </div>
-  </section>
-
-  <div id="msg" role="alert" hidden></div>
-
-  <main class="workspace" id="workspace" hidden>
-    <aside class="panel types" aria-label="Flow types">
-      <button class="types-head" id="typesHead" type="button" aria-expanded="true">
-        <span>Flow Types</span><span class="chev" id="typesChev">▼</span>
-      </button>
+  <aside class="rail" aria-label="Connection">
+    <div class="logo"><img alt="Genesys" width="129" height="33" src="data:image/png;base64,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" /></div>
+    <div class="appname">Flow Exporter</div>
+    <div class="org" id="orgBadge" hidden>Org: <strong id="orgName"></strong></div>
+    <label class="field"><span>Genesys Cloud region</span><select id="region"></select></label>
+    <label class="field"><span>OAuth client ID</span>
+      <input type="text" id="clientId" placeholder="Paste the PKCE OAuth client ID" autocomplete="off" spellcheck="false" /></label>
+    <button class="btn primary" id="authBtn" type="button">Sign in to Genesys Cloud</button>
+    <p class="railnote">Region and client ID are retained in this browser; the access token is session-only.</p>
+    <section class="types" id="typesPanel" aria-label="Flow types" hidden>
+      <button class="types-head" id="typesHead" type="button" aria-expanded="true"><span>Flow types</span><span class="chev" id="typesChev">▼</span></button>
       <ul id="typeList"></ul>
-    </aside>
+    </section>
+    <p class="railnote redir">Redirect URI to register on the OAuth client:<code id="redirectUri"></code></p>
+  </aside>
 
-    <section class="panel flows" aria-label="Flows">
-      <div id="flowsEmpty" class="empty">Select a flow type to list its flows.</div>
-      <div id="flowsBody" hidden>
-        <div class="flows-bar">
-          <input type="text" id="filter" placeholder="Filter by name, description or division" autocomplete="off" />
-          <span class="count" id="flowCount"></span>
-        </div>
-        <div class="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="chk"><input type="checkbox" id="selAll" aria-label="Select all listed flows" /></th>
-                <th>Name</th><th>Description</th><th>Division</th>
-              </tr>
-            </thead>
-            <tbody id="flowRows"></tbody>
-          </table>
-        </div>
-      </div>
+  <div class="content">
+    <div id="msg" role="alert" hidden></div>
+
+    <section class="welcome" id="welcome">
+      <h2>Connect to a Genesys Cloud org</h2>
+      <p>Choose a region, paste the PKCE client ID and sign in. Your flow types and flows appear here once you are connected.</p>
     </section>
 
-    <section class="panel side" aria-label="Export">
-      <div class="side-actions">
-        <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
-        <button class="btn primary" id="tfBtn" type="button" disabled>Export to Terraform</button>
-        <span class="progress" id="progress"></span>
-      </div>
-      <p class="note">Downloads go to your browser's default download folder, one .yaml file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it.</p>
-      <div class="deps" id="deps" hidden>
-        <div class="deps-head">
-          <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
-          <span class="deps-btns"><button class="btn small" id="expandBtn" type="button">Expand all</button><button class="btn small" id="csvBtn" type="button">Download list (.csv)</button></span>
+    <main class="workspace" id="workspace" hidden>
+      <section aria-label="Flows">
+        <h1 class="flows-title" id="flowTitle">Flows</h1>
+        <div class="card">
+          <div id="flowsEmpty" class="empty">Select a flow type to list its flows.</div>
+          <div id="flowsBody" hidden>
+            <div class="flows-bar">
+              <input type="text" id="filter" placeholder="Filter by name, description or division" autocomplete="off" />
+              <span class="count" id="flowCount"></span>
+            </div>
+            <div class="tablewrap">
+              <table>
+                <thead><tr>
+                  <th class="chk"><input type="checkbox" id="selAll" aria-label="Select all listed flows" /></th>
+                  <th>Name</th><th>Description</th><th>Division</th>
+                </tr></thead>
+                <tbody id="flowRows"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div id="depBody"></div>
-      </div>
-    </section>
-  </main>
+      </section>
+
+      <section class="side" aria-label="Export">
+        <h2>Export</h2>
+        <div class="side-actions">
+          <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
+          <button class="btn primary" id="tfBtn" type="button" disabled>Export to Terraform</button>
+          <span class="progress" id="progress"></span>
+        </div>
+        <p class="note">Downloads go to your browser's default download folder, one file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it.</p>
+        <div class="deps" id="deps" hidden>
+          <div class="deps-head">
+            <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
+            <span class="deps-btns"><button class="btn small" id="expandBtn" type="button">Expand all</button><button class="btn small" id="csvBtn" type="button">Download list (.csv)</button></span>
+          </div>
+          <div id="depBody"></div>
+        </div>
+      </section>
+    </main>
+  </div>
 </div>
 
 <script>
@@ -748,6 +758,38 @@ async function exportTerraform() {
   renderAll();
 }
 
+/* ---------- object-type icons (ring badge + orange glyph + cyan accent dot) ---------- */
+const ICONS = {
+  milestone: '<path d="M6 21V4"/><path d="M6 5h11l-2.5 3.5L17 12H6"/><circle class="ac" cx="6" cy="21" r="1.7"/>',
+  outcome: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.6"/><circle class="ac" cx="12" cy="12" r="1.6"/>',
+  action: '<path d="M13 2 5 13.5h6L10 22l8-11.5h-6z"/><circle class="ac" cx="19" cy="5" r="1.7"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/><circle class="ac" cx="15" cy="12.5" r="1.4"/>',
+  queue: '<path d="M4 7h10M4 12h10M4 17h6"/><path d="m17 8 4 4-4 4"/><circle class="ac" cx="20" cy="5" r="1.6"/>',
+  skill: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/><circle class="ac" cx="20.5" cy="4" r="1.5"/>',
+  prompt: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/><circle class="ac" cx="12" cy="12" r="0"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle class="ac" cx="7.5" cy="8.5" r="1.7"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle class="ac" cx="12" cy="15.5" r="1.7"/>',
+  calendars: '<rect x="3" y="7" width="14" height="14" rx="2"/><path d="M3 12h14M7 5v4M13 5v4M20 8v10a3 3 0 0 1-3 3"/><circle class="ac" cx="10" cy="16.5" r="1.5"/>',
+  alert: '<path d="M12 3 22 20H2z"/><path d="M12 10v4.5"/><circle class="ac" cx="12" cy="17.3" r="1.2"/>',
+  book: '<path d="M3 5h7a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H3zM21 5h-7a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h7z"/><circle class="ac" cx="12" cy="3" r="1.4"/>',
+  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/><circle class="ac" cx="12" cy="9" r="1.5"/>',
+  flow: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M9 6h4a2 2 0 0 1 2 2v7"/><circle class="ac" cx="18" cy="6" r="1.7"/>',
+  plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/><circle class="ac" cx="12" cy="11" r="1.4"/>',
+  people: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M17 5.5a2.6 2.6 0 0 1 0 5M18 14a5 5 0 0 1 3.5 5"/><circle class="ac" cx="9" cy="8" r="1.1"/>',
+  script: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h6M9.5 13 7.5 15l2 2M14.5 13l2 2-2 2"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/><circle class="ac" cx="9" cy="10.5" r="1.3"/><circle class="ac" cx="13" cy="10.5" r="1.3"/>',
+  building: '<path d="M4 21V5l8-2v18M12 9h8v12M3 21h18M7.5 9h1M7.5 13h1M7.5 17h1"/><circle class="ac" cx="16" cy="13" r="1.4"/>',
+  cube: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
+};
+const ICON_FOR = {
+  'Milestones': 'milestone', 'Outcomes': 'outcome', 'Data Actions': 'action', 'Data Tables': 'table', 'Queues': 'queue',
+  'Skills': 'skill', 'Prompts': 'prompt', 'Wrap-up Codes': 'tag', 'Utilization Labels': 'tag', 'Schedules': 'calendar',
+  'Schedule Groups': 'calendars', 'Emergency Groups': 'alert', 'Grammars': 'book', 'Knowledge Bases': 'bulb',
+  'Common Modules': 'flow', 'Flows': 'flow', 'Integrations': 'plug', 'Groups': 'people', 'Scripts': 'script',
+  'Responses': 'chat', 'Divisions': 'building',
+};
+const iconFor = (label) => `<span class="oi" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[ICON_FOR[label] || 'cube']}</svg></span>`;
+
 /* ---------- rendering ---------- */
 function renderAuth() {
   const on = !!S.token;
@@ -758,6 +800,8 @@ function renderAuth() {
   $('orgBadge').hidden = !on;
   $('orgName').textContent = S.org || '';
   $('workspace').hidden = !on;
+  $('typesPanel').hidden = !on;
+  $('welcome').hidden = on;
 }
 
 function renderTypes() {
@@ -769,6 +813,8 @@ function renderTypes() {
     if (value === S.flowType) b.setAttribute('aria-current', 'true');
     li.appendChild(b); ul.appendChild(li);
   }
+  const cur = FLOW_TYPES.find(([, v]) => v === S.flowType);
+  $('flowTitle').textContent = cur ? cur[0] : 'Flows';
   $('typesHead').setAttribute('aria-expanded', String(S.typesOpen));
   $('typesChev').textContent = S.typesOpen ? '▼' : '▶';
 }
@@ -818,7 +864,7 @@ function renderDeps() {
         return `<div class="dtype ${has ? '' : 'zero'}">
           <div class="dtype-head">
             <button type="button" class="twisty" data-toggle="${esc(key)}" aria-expanded="${open}" ${has ? '' : 'disabled'} aria-label="${open ? 'Collapse' : 'Expand'} ${esc(g.label)}">${open ? '▼' : '▶'}</button>
-            <label><input type="checkbox" data-dtype="${esc(key)}" ${sel === g.items.length && has ? 'checked' : ''} ${has ? '' : 'disabled'} data-partial="${sel > 0 && sel < g.items.length}"> ${esc(g.label)}</label>
+            <label><input type="checkbox" data-dtype="${esc(key)}" ${sel === g.items.length && has ? 'checked' : ''} ${has ? '' : 'disabled'} data-partial="${sel > 0 && sel < g.items.length}"> ${iconFor(g.label)}<span>${esc(g.label)}</span></label>
             <span class="n">${has && sel < g.items.length ? sel + ' of ' : ''}${g.items.length}</span>
           </div>${names}</div>`;
       }).join('');
