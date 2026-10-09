@@ -87,6 +87,13 @@
   th.chk, td.chk { width: 44px; padding-right: 0; }
   input[type=checkbox] { width: 17px; height: 17px; accent-color: #E8501A; cursor: pointer; vertical-align: -3px; }
   .dtype input[type=checkbox], .deps-head input[type=checkbox] { flex: none; }
+  .vacol { white-space: nowrap; }
+  .vab { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }
+  .vab.on { background: #E3F6EC; color: #176B43; }
+  .vab.off { background: #EEF0F6; color: #56627F; }
+  .vab.err { background: #FEF3F2; color: #B42318; }
+  .vab.pend { background: none; color: var(--mute); font-weight: 600; padding-left: 0; }
+  .vaprog { font-size: 12.5px; color: var(--mute); font-weight: 600; }
   .empty { padding: 36px 16px; text-align: center; color: var(--mute); font-size: 14px; }
 
   /* ---- export side ---- */
@@ -116,6 +123,20 @@
   .dtype li { word-break: break-word; }
   .dtype li label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
   .dtype li.deleted { color: var(--mute); text-decoration: line-through; }
+  .tkopt { display: flex; align-items: center; gap: 8px; color: var(--blue); font-weight: 800; }
+  .tkopt .tklbl { flex: 1; }
+  .tki { width: 17px; height: 17px; display: inline-grid; place-items: center; flex: none; color: var(--blue); }
+  .tki svg { width: 16px; height: 16px; fill: #E5ECFB; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .sw { width: 34px; height: 18px; border-radius: 999px; border: 0; background: #C9D0E2; position: relative; cursor: pointer; flex: none; transition: background .15s; padding: 0; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(18,37,80,.35); transition: transform .15s; }
+  .sw[aria-checked=true] { background: var(--grad); }
+  .sw[aria-checked=true]::after { transform: translateX(16px); }
+  .dtype li.task { display: block; }
+  .tkrow { display: flex; align-items: center; gap: 6px; color: var(--blue); font-weight: 800; }
+  .dtype .tkrow label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; font-weight: 800; color: var(--blue); }
+  .tkn { font-size: 11.5px; font-weight: 800; background: #E5ECFB; color: var(--blue); border-radius: 999px; padding: 1px 9px; }
+  .twisty.small { width: 20px; height: 20px; font-size: 9px; margin-left: -4px; }
+  .dtype ul.tkitems { margin: 5px 0 3px 26px; gap: 5px; }
   .twisty { font: inherit; font-size: 10px; width: 24px; height: 24px; border: 0; background: none; color: var(--mute); border-radius: 6px; cursor: pointer; flex: none; }
   .twisty:hover:not(:disabled) { background: #EEF1F8; color: var(--navy); }
   .twisty:disabled { opacity: .3; cursor: default; }
@@ -165,13 +186,14 @@
           <div id="flowsBody" hidden>
             <div class="flows-bar">
               <input type="text" id="filter" placeholder="Filter by name, description or division" autocomplete="off" />
+              <span class="vaprog" id="vaProgress"></span>
               <span class="count" id="flowCount"></span>
             </div>
             <div class="tablewrap">
               <table>
                 <thead><tr>
                   <th class="chk"><input type="checkbox" id="selAll" aria-label="Select all listed flows" /></th>
-                  <th>Name</th><th>Description</th><th>Division</th>
+                  <th>Name</th><th>Description</th><th>Division</th><th class="vacol" id="thVa" title="Whether virtual agent is switched on in the flow's bot settings (latest saved version)">Virtual agent</th>
                 </tr></thead>
                 <tbody id="flowRows"></tbody>
               </table>
@@ -254,8 +276,9 @@ const S = {
   token: null, org: null, domain: null,
   flowType: null, typesOpen: true, flows: [], selected: new Set(), loadSeq: 0, loading: false, loadError: false,
   deps: new Map(),          // flowId -> {flow, groups:[{label,items[]}], error, loading}
-  depOff: new Set(), depOpen: new Set(),    // category labels the user unticked
+  depOff: new Set(), depOpen: new Set(), depByTask: new Set(), taskOpen: new Set(),    // category labels the user unticked
   busy: false,
+  va: new Map(),            // flowId -> {state:'on'|'off'|'na'|'err', agentic, msg} (virtual agent status)
 };
 
 /* ---------- messages ---------- */
@@ -434,7 +457,7 @@ async function restoreSession() {
 function clearSession() {
   S.token = null; S.org = null;
   sessionStorage.removeItem(K.token);
-  Object.assign(S, { flowType: null, flows: [], selected: new Set(), deps: new Map(), typesOpen: true, loadSeq: S.loadSeq + 1, loading: false, loadError: false });
+  Object.assign(S, { flowType: null, flows: [], selected: new Set(), deps: new Map(), typesOpen: true, loadSeq: S.loadSeq + 1, loading: false, loadError: false, va: new Map() });
   renderAll();
 }
 function sessionExpired() {
@@ -449,10 +472,51 @@ async function signOut() {
 }
 
 /* ---------- flows ---------- */
+/* ---------- virtual agent status (bot flows) ---------- */
+const VA_TYPES = new Set(['bot', 'digitalbot']);
+const showVa = () => VA_TYPES.has(S.flowType);
+function vaCell(id) {
+  const v = S.va.get(id);
+  if (!v) return '<span class="vab pend"><span class="spinner"></span>Checking</span>';
+  if (v.state === 'on') return `<span class="vab on" title="Virtual agent is switched on in this flow's bot settings">✓ Activated${v.agentic ? ' · agentic' : ''}</span>`;
+  if (v.state === 'off') return '<span class="vab off" title="Virtual agent is not switched on in this flow\'s bot settings">– Not activated</span>';
+  if (v.state === 'na') return '<span class="vab off" title="This flow has no bot settings">– Not applicable</span>';
+  return `<span class="vab err" title="${esc(v.msg || 'Could not read the flow configuration')}">! Unavailable</span>`;
+}
+async function loadVirtualAgent(seq) {
+  const bar = $('vaProgress');
+  if (!showVa()) { bar.textContent = ''; return; }
+  const flows = S.flows.slice(); const todo = flows.filter((f) => !S.va.has(f.id)); let next = 0;
+  const progress = () => {
+    const done = flows.filter((f) => S.va.has(f.id)).length;
+    bar.innerHTML = done < flows.length ? `<span class="spinner"></span>Checking virtual agent ${done} of ${flows.length}` : '';
+  };
+  progress();
+  const worker = async () => {
+    while (next < todo.length) {
+      if (seq !== S.loadSeq || !S.token) return;
+      const f = todo[next++];
+      try {
+        const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
+        const b = cfg && cfg.botFlowSettings;
+        S.va.set(f.id, !b || typeof b !== 'object' ? { state: 'na' }
+          : { state: (b.virtualAgentEnabled || b.agenticVirtualAgentEnabled) ? 'on' : 'off', agentic: !!b.agenticVirtualAgentEnabled });
+      } catch (e) { S.va.set(f.id, { state: 'err', msg: e.message }); }
+      if (seq !== S.loadSeq) return;
+      const td = document.querySelector(`td[data-va="${CSS.escape(f.id)}"]`);
+      if (td) td.innerHTML = vaCell(f.id);
+      progress();
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));   // 4 at a time keeps within API rate limits
+  if (seq === S.loadSeq) progress();
+}
+
 async function selectFlowType(value) {
   clearMsg();
   const seq = ++S.loadSeq;
-  Object.assign(S, { flowType: value, typesOpen: false, flows: [], selected: new Set(), deps: new Map(), loading: true, loadError: false });
+  Object.assign(S, { flowType: value, typesOpen: false, flows: [], selected: new Set(), deps: new Map(), loading: true, loadError: false, va: new Map() });
+  $('vaProgress').textContent = '';
   $('filter').value = '';
   renderAll();
   try {
@@ -472,6 +536,7 @@ async function selectFlowType(value) {
     showMsg('Could not list flows: ' + e.message + (e.status === 403 ? '\nThe signed-in user needs Architect > Flow > View, and the OAuth client needs the matching scope.' : ''));
   }
   renderAll();
+  if (!S.loadError) loadVirtualAgent(seq);
 }
 
 function visibleFlows() {
@@ -543,7 +608,7 @@ function otherLabel(rawKey, norm) {
 }
 
 // Build the dependency groups from the flow's own manifest (the same data that is in the exported YAML).
-function groupManifest(manifest) {
+function groupManifest(manifest, cfg) {
   const groups = DEP_GROUPS.map(([label]) => ({ label, items: [] }));
   const other = new Map();
   const seen = new Set();
@@ -571,7 +636,30 @@ function groupManifest(manifest) {
   groups.forEach((g) => g.items.sort(byName));
   const extra = [...other.values()].sort((x, y) => x.label.localeCompare(y.label));
   extra.forEach((g) => g.items.sort(byName));
-  return groups.concat(extra);
+  const all = groups.concat(extra);
+  addTaskBreakdown(all, cfg);
+  return all;
+}
+
+// Work out which objects each task (and the bot state) in the flow uses, by looking for each object's id inside that task.
+function addTaskBreakdown(groups, cfg) {
+  const seq = (cfg && Array.isArray(cfg.flowSequenceItemList)) ? cfg.flowSequenceItemList : [];
+  const containers = seq.filter((i) => i && (i.__type === 'Task' || i.__type === 'BotState'))
+    .map((i) => ({ label: i.name || '(unnamed task)', state: i.__type === 'BotState', json: JSON.stringify(i) }));
+  if (!containers.length) { groups.forEach((g) => { g.tasks = null; }); return; }
+  const byLabel = (x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' });
+  for (const g of groups) {
+    const placed = new Set(); const tasks = [];
+    for (const c of containers) {
+      const items = g.items.filter((d) => d.id && c.json.includes(d.id));
+      items.forEach((d) => placed.add(d));
+      if (items.length) tasks.push({ label: c.label, state: c.state, items });
+    }
+    tasks.sort(byLabel);
+    const rest = g.items.filter((d) => !placed.has(d));
+    if (rest.length) tasks.push({ label: 'Outside tasks', other: true, items: rest });
+    g.tasks = tasks.length ? tasks : null;
+  }
 }
 
 /* ---------- export ---------- */
@@ -592,7 +680,7 @@ async function exportSelected() {
       const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
       const header = `# Flow: ${f.name}\n# Type: ${f.type}\n# Division: ${(f.division && f.division.name) || ''}\n# Exported: ${new Date().toISOString()}\n# Source: GET /api/v2/flows/${f.id}/latestconfiguration (Architect configuration rendered as YAML)\n`;
       download(`${safeName(f.name)}.${String(f.type || '').toLowerCase()}.yaml`, header + toYaml(cfg), 'application/x-yaml');
-      if (cfg && cfg.manifest) entry.groups = groupManifest(cfg.manifest);
+      if (cfg && cfg.manifest) entry.groups = groupManifest(cfg.manifest, cfg);
       else entry.error = 'The flow configuration has no manifest section, so its dependencies cannot be listed.';
     } catch (e) {
       failures.push(`${f.name}: ${e.message}`);
@@ -740,7 +828,7 @@ async function exportTerraform() {
       try {
         const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
         if (!cfg || !cfg.manifest) throw new Error('the flow configuration has no manifest section');
-        entry.groups = groupManifest(cfg.manifest);
+        entry.groups = groupManifest(cfg.manifest, cfg);
       } catch (e) { entry.error = 'Dependencies could not be read: ' + e.message; }
       entry.loading = false; renderDeps();
     }
@@ -827,6 +915,7 @@ function renderFlows() {
   if (S.loadError) return showEmpty('Flows could not be loaded.');
   if (!S.flows.length) return showEmpty('No flows of this type were found in this org.');
   empty.hidden = true; body.hidden = false;
+  $('thVa').hidden = !showVa();
   const vis = visibleFlows();
   const rows = vis.map((f) => `
     <tr class="${S.selected.has(f.id) ? 'sel' : ''}">
@@ -834,13 +923,15 @@ function renderFlows() {
       <td class="name">${esc(f.name)}</td>
       <td class="desc">${esc(f.description || '')}</td>
       <td>${esc((f.division && f.division.name) || '')}</td>
+      ${showVa() ? `<td class="vacol" data-va="${esc(f.id)}">${vaCell(f.id)}</td>` : ''}
     </tr>`).join('');
-  $('flowRows').innerHTML = rows || '<tr><td colspan="4" class="empty">No flows match the filter.</td></tr>';
+  $('flowRows').innerHTML = rows || `<tr><td colspan="5" class="empty">No flows match the filter.</td></tr>`;
   $('flowCount').textContent = `${vis.length} of ${S.flows.length} flows, ${S.selected.size} selected`;
   const selVis = vis.filter((f) => S.selected.has(f.id)).length;
   const all = $('selAll'); all.checked = vis.length > 0 && selVis === vis.length; all.indeterminate = selVis > 0 && selVis < vis.length;
 }
 
+const FOLDER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 function renderDeps() {
   const box = $('deps');
   if (!S.deps.size) { box.hidden = true; return; }
@@ -859,8 +950,27 @@ function renderDeps() {
         const open = has && S.depOpen.has(key);
         const sel = g.items.filter((d) => itemOn(e.flow.id, g.label, d)).length;
         total += g.items.length; off += g.items.length - sel;
-        const names = open
-          ? `<ul>${g.items.map((d) => `<li class="${d.deleted ? 'deleted' : ''}"><label><input type="checkbox" data-item="${esc(itemKey(e.flow.id, g.label, d))}" ${itemOn(e.flow.id, g.label, d) ? 'checked' : ''}> ${esc(d.name || d.id)}</label></li>`).join('')}</ul>` : '';
+        const itemLi = (d) => `<li class="${d.deleted ? 'deleted' : ''}"><label><input type="checkbox" data-item="${esc(itemKey(e.flow.id, g.label, d))}" ${itemOn(e.flow.id, g.label, d) ? 'checked' : ''}> ${esc(d.name || d.id)}</label></li>`;
+        let names = '';
+        if (open) {
+          const canTask = !!(g.tasks && g.tasks.length);
+          const byTask = canTask && S.depByTask.has(key);
+          const optRow = canTask ? `<li class="tkopt" title="An object used by more than one task is listed under each of them"><span class="tki">${FOLDER_SVG}</span><span class="tklbl">Break down by task</span><button type="button" class="sw" role="switch" aria-checked="${byTask}" data-bytask="${esc(key)}" aria-label="Break down ${esc(g.label)} by task"></button></li>` : '';
+          let body;
+          if (byTask) {
+            body = g.tasks.map((t) => {
+              const tkey = key + '|' + t.label;
+              const topen = S.taskOpen.has(tkey);
+              const tsel = t.items.filter((d) => itemOn(e.flow.id, g.label, d)).length;
+              const inner = topen ? `<ul class="tkitems">${t.items.map(itemLi).join('')}</ul>` : '';
+              return `<li class="task"><div class="tkrow">
+                <button type="button" class="twisty small" data-ttoggle="${esc(tkey)}" aria-expanded="${topen}" aria-label="${topen ? 'Collapse' : 'Expand'} task ${esc(t.label)}">${topen ? '▼' : '▶'}</button>
+                <label><input type="checkbox" data-task="${esc(tkey)}" ${tsel === t.items.length ? 'checked' : ''} data-partial="${tsel > 0 && tsel < t.items.length}"><span class="tki">${FOLDER_SVG}</span><span class="tkname">${esc(t.label)}${t.state ? ' (bot state)' : ''}</span></label>
+                <span class="tkn" title="${t.items.length} ${esc(g.label.toLowerCase())} in this task">${t.items.length}</span></div>${inner}</li>`;
+            }).join('');
+          } else body = g.items.map(itemLi).join('');
+          names = `<ul>${optRow}${body}</ul>`;
+        }
         return `<div class="dtype ${has ? '' : 'zero'}">
           <div class="dtype-head">
             <button type="button" class="twisty" data-toggle="${esc(key)}" aria-expanded="${open}" ${has ? '' : 'disabled'} aria-label="${open ? 'Collapse' : 'Expand'} ${esc(g.label)}">${open ? '▼' : '▶'}</button>
@@ -922,6 +1032,10 @@ function wire() {
     renderDeps();
   });
   $('depBody').addEventListener('click', (e) => {
+    const sw = e.target.closest('button[data-bytask]');
+    if (sw) { const k = sw.dataset.bytask; S.depByTask.has(k) ? S.depByTask.delete(k) : S.depByTask.add(k); renderDeps(); return; }
+    const tt = e.target.closest('button[data-ttoggle]');
+    if (tt) { const k = tt.dataset.ttoggle; S.taskOpen.has(k) ? S.taskOpen.delete(k) : S.taskOpen.add(k); renderDeps(); return; }
     const b = e.target.closest('button[data-toggle]'); if (!b) return;
     const k = b.dataset.toggle;
     S.depOpen.has(k) ? S.depOpen.delete(k) : S.depOpen.add(k);
@@ -932,6 +1046,11 @@ function wire() {
     const t = e.target.dataset || {};
     if (t.item !== undefined) {
       e.target.checked ? S.depOff.delete(t.item) : S.depOff.add(t.item);
+    } else if (t.task !== undefined) {      // whole task: tick/untick the objects of this type used by that task
+      const [flowId, label, ...r] = t.task.split('|'); const tl = r.join('|');
+      const g = ((S.deps.get(flowId) || {}).groups || []).find((x) => x.label === label);
+      const task = g && (g.tasks || []).find((x) => x.label === tl);
+      if (task) task.items.forEach((d) => (e.target.checked ? S.depOff.delete(itemKey(flowId, label, d)) : S.depOff.add(itemKey(flowId, label, d))));
     } else if (t.dtype !== undefined) {     // whole type: tick/untick every object of that type for that flow
       const [flowId, ...rest] = t.dtype.split('|'); const label = rest.join('|');
       const g = ((S.deps.get(flowId) || {}).groups || []).find((x) => x.label === label);
