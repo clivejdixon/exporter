@@ -641,22 +641,51 @@ function groupManifest(manifest, cfg) {
   return all;
 }
 
-// Work out which objects each task (and the bot state) in the flow uses, by looking for each object's id inside that task.
+// Find where each dependency is used in the flow: which task (or the bot state) and which block (action) inside it.
+// Each block has its own id and a numeric tracking id. Ids are found by looking for GUIDs inside every value of the block.
+const GUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 function addTaskBreakdown(groups, cfg) {
   const seq = (cfg && Array.isArray(cfg.flowSequenceItemList)) ? cfg.flowSequenceItemList : [];
   const containers = seq.filter((i) => i && (i.__type === 'Task' || i.__type === 'BotState'))
-    .map((i) => ({ label: i.name || '(unnamed task)', state: i.__type === 'BotState', json: JSON.stringify(i) }));
+    .map((i, ci) => ({ ci, label: i.name || '(unnamed task)', state: i.__type === 'BotState', obj: i }));
+  const byId = new Map();
+  groups.forEach((g) => g.items.forEach((d) => {
+    d.usages = [];
+    if (d.id) { const k = String(d.id).toLowerCase(); if (!byId.has(k)) byId.set(k, []); byId.get(k).push(d); }
+  }));
   if (!containers.length) { groups.forEach((g) => { g.tasks = null; }); return; }
+  for (const c of containers) {
+    const seen = new Set();
+    const walk = (o, block) => {
+      if (Array.isArray(o)) { for (const x of o) walk(x, block); return; }
+      if (o && typeof o === 'object') {
+        let b = block;
+        if (o !== c.obj && typeof o.__type === 'string' && /Action$/.test(o.__type)) b = o;   // nearest enclosing block
+        for (const k in o) walk(o[k], b);
+        return;
+      }
+      if (typeof o === 'string' && o.length >= 36) {
+        const found = o.match(GUID_RE); if (!found) return;
+        for (const g of found) {
+          for (const d of byId.get(g.toLowerCase()) || []) {
+            const key = d.id + '|' + (block ? block.id : '');
+            if (seen.has(key)) continue; seen.add(key);
+            d.usages.push({ ci: c.ci, task: c.label, state: c.state, block: block ? { name: block.name || '', type: block.__type || '', id: block.id || '', trackingId: block.trackingId } : null });
+          }
+        }
+      }
+    };
+    walk(c.obj, null);
+  }
   const byLabel = (x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' });
   for (const g of groups) {
-    const placed = new Set(); const tasks = [];
+    const tasks = [];
     for (const c of containers) {
-      const items = g.items.filter((d) => d.id && c.json.includes(d.id));
-      items.forEach((d) => placed.add(d));
+      const items = g.items.filter((d) => d.usages.some((u) => u.ci === c.ci));
       if (items.length) tasks.push({ label: c.label, state: c.state, items });
     }
     tasks.sort(byLabel);
-    const rest = g.items.filter((d) => !placed.has(d));
+    const rest = g.items.filter((d) => !d.usages.length);
     if (rest.length) tasks.push({ label: 'Outside tasks', other: true, items: rest });
     g.tasks = tasks.length ? tasks : null;
   }
@@ -707,11 +736,19 @@ function selectedGroups(entry) {
 
 function downloadCsv() {
   let n = 0;
+  const head = ['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version', 'Tasks using this object', 'Task', 'Block name', 'Block type', 'Block id', 'Block tracking id'];
+  const taskName = (u) => u.task + (u.state ? ' (bot state)' : '');
   for (const e of S.deps.values()) {
     const groups = selectedGroups(e);
     if (!groups.length) continue;
-    const rows = [['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version']];
-    groups.forEach((g) => g.items.forEach((d) => rows.push([e.flow.name, e.flow.type, g.label, d.name, d.id || '', d.version || ''])));
+    const rows = [head];
+    groups.forEach((g) => g.items.forEach((d) => {
+      const base = [e.flow.name, e.flow.type, g.label, d.name, d.id || '', d.version || ''];
+      const us = d.usages || [];
+      const allTasks = [...new Set(us.map(taskName))].join('; ');
+      if (!us.length) rows.push([...base, allTasks, '', '', '', '', '']);        // one row per usage; none found = one row
+      else us.forEach((u) => rows.push([...base, allTasks, taskName(u), u.block ? u.block.name : '', u.block ? u.block.type : '', u.block ? u.block.id : '', u.block && u.block.trackingId != null ? u.block.trackingId : '']));
+    }));
     const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
     setTimeout(() => download(`${safeName(e.flow.name)}_dependencies.csv`, csv, 'text/csv'), n++ * 350);
   }
