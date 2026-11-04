@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Genesys Cloud Flow Exporter</title>
+<title>Genesys Cloud Flow Exporter v2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -167,6 +167,7 @@
       <button class="types-head" id="typesHead" type="button" aria-expanded="true"><span>Flow types</span><span class="chev" id="typesChev">▼</span></button>
       <ul id="typeList"></ul>
     </section>
+    <p class="railnote">Build <strong id="buildTag"></strong></p>
     <p class="railnote redir">Redirect URI to register on the OAuth client:<code id="redirectUri"></code></p>
   </aside>
 
@@ -266,6 +267,7 @@ const K = {
   verifier: 'gcFlowExporter.verifier.v1',
   state: 'gcFlowExporter.state.v1',
 };
+const APP_BUILD = '2026-11-04 · CSV with tasks and block ids';
 const REDIRECT_URI = location.origin + location.pathname;
 
 const $ = (id) => document.getElementById(id);
@@ -646,12 +648,14 @@ function groupManifest(manifest, cfg) {
 const GUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 function addTaskBreakdown(groups, cfg) {
   const seq = (cfg && Array.isArray(cfg.flowSequenceItemList)) ? cfg.flowSequenceItemList : [];
-  const containers = seq.filter((i) => i && (i.__type === 'Task' || i.__type === 'BotState'))
-    .map((i, ci) => ({ ci, label: i.name || '(unnamed task)', state: i.__type === 'BotState', obj: i }));
+  const kindOf = (t) => t === 'Task' ? '' : t === 'BotState' ? 'bot state' : String(t || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  const containers = seq.filter((i) => i && typeof i === 'object' && typeof i.__type === 'string')
+    .map((i, ci) => ({ ci, label: i.name || kindOf(i.__type) || '(unnamed task)', kind: kindOf(i.__type), obj: i }));
   const byId = new Map();
+  const index = (k, d) => { k = String(k).toLowerCase(); if (!byId.has(k)) byId.set(k, []); if (!byId.get(k).includes(d)) byId.get(k).push(d); };
   groups.forEach((g) => g.items.forEach((d) => {
     d.usages = [];
-    if (d.id) { const k = String(d.id).toLowerCase(); if (!byId.has(k)) byId.set(k, []); byId.get(k).push(d); }
+    if (d.id) { index(d.id, d); (String(d.id).match(GUID_RE) || []).forEach((x) => index(x, d)); }   // ids like custom_-_<guid> are referenced by the bare GUID
   }));
   if (!containers.length) { groups.forEach((g) => { g.tasks = null; }); return; }
   for (const c of containers) {
@@ -660,7 +664,10 @@ function addTaskBreakdown(groups, cfg) {
       if (Array.isArray(o)) { for (const x of o) walk(x, block); return; }
       if (o && typeof o === 'object') {
         let b = block;
-        if (o !== c.obj && typeof o.__type === 'string' && /Action$/.test(o.__type)) b = o;   // nearest enclosing block
+        if (o !== c.obj && typeof o.__type === 'string') {   // nearest enclosing block: an Action if there is one, else the deepest typed item with an id
+          if (/Action$/.test(o.__type)) b = o;
+          else if ((o.id || o.trackingId != null) && !(block && /Action$/.test(block.__type || ''))) b = o;
+        }
         for (const k in o) walk(o[k], b);
         return;
       }
@@ -670,7 +677,7 @@ function addTaskBreakdown(groups, cfg) {
           for (const d of byId.get(g.toLowerCase()) || []) {
             const key = d.id + '|' + (block ? block.id : '');
             if (seen.has(key)) continue; seen.add(key);
-            d.usages.push({ ci: c.ci, task: c.label, state: c.state, block: block ? { name: block.name || '', type: block.__type || '', id: block.id || '', trackingId: block.trackingId } : null });
+            d.usages.push({ ci: c.ci, task: c.label, kind: c.kind, block: block ? { name: block.name || '', type: block.__type || '', id: block.id || '', trackingId: block.trackingId } : null });
           }
         }
       }
@@ -682,7 +689,7 @@ function addTaskBreakdown(groups, cfg) {
     const tasks = [];
     for (const c of containers) {
       const items = g.items.filter((d) => d.usages.some((u) => u.ci === c.ci));
-      if (items.length) tasks.push({ label: c.label, state: c.state, items });
+      if (items.length) tasks.push({ label: c.label, kind: c.kind, items });
     }
     tasks.sort(byLabel);
     const rest = g.items.filter((d) => !d.usages.length);
@@ -737,7 +744,7 @@ function selectedGroups(entry) {
 function downloadCsv() {
   let n = 0;
   const head = ['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version', 'Tasks using this object', 'Task', 'Block name', 'Block type', 'Block id', 'Block tracking id'];
-  const taskName = (u) => u.task + (u.state ? ' (bot state)' : '');
+  const taskName = (u) => u.task + (u.kind ? ` (${u.kind})` : '');
   for (const e of S.deps.values()) {
     const groups = selectedGroups(e);
     if (!groups.length) continue;
@@ -1002,7 +1009,7 @@ function renderDeps() {
               const inner = topen ? `<ul class="tkitems">${t.items.map(itemLi).join('')}</ul>` : '';
               return `<li class="task"><div class="tkrow">
                 <button type="button" class="twisty small" data-ttoggle="${esc(tkey)}" aria-expanded="${topen}" aria-label="${topen ? 'Collapse' : 'Expand'} task ${esc(t.label)}">${topen ? '▼' : '▶'}</button>
-                <label><input type="checkbox" data-task="${esc(tkey)}" ${tsel === t.items.length ? 'checked' : ''} data-partial="${tsel > 0 && tsel < t.items.length}"><span class="tki">${FOLDER_SVG}</span><span class="tkname">${esc(t.label)}${t.state ? ' (bot state)' : ''}</span></label>
+                <label><input type="checkbox" data-task="${esc(tkey)}" ${tsel === t.items.length ? 'checked' : ''} data-partial="${tsel > 0 && tsel < t.items.length}"><span class="tki">${FOLDER_SVG}</span><span class="tkname">${esc(t.label)}${t.kind ? ' (' + esc(t.kind) + ')' : ''}</span></label>
                 <span class="tkn" title="${t.items.length} ${esc(g.label.toLowerCase())} in this task">${t.items.length}</span></div>${inner}</li>`;
             }).join('');
           } else body = g.items.map(itemLi).join('');
@@ -1113,6 +1120,7 @@ async function init() {
   if (cfg.domain && REGIONS.some(([, d]) => d === cfg.domain)) sel.value = cfg.domain;
   S.domain = sel.value;
   $('redirectUri').textContent = REDIRECT_URI;
+  $('buildTag').textContent = APP_BUILD;
   wire();
   renderAll();
 
