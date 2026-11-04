@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Genesys Cloud Flow Exporter</title>
+<title>Genesys Cloud Interaction Outcomes &amp; Milestones</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
     --paper: #FAF7F6; --navy: #122550; --navy-deep: #0C1B3E; --orange: #FF5618; --orange-ink: #C93D0C; --amber: #FF9002;
@@ -150,23 +151,78 @@
   .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #C7D2FE; border-top-color: var(--orange); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .btn { transition: none; } }
+
+  /* ---- additions for the interaction view ---- */
+  .workspace { grid-template-columns: minmax(0, 1fr) 360px; }
+  @media (max-width: 1250px) { .workspace { grid-template-columns: 1fr; } }
+  .side input[type=text], .side select { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 12px; width: 100%; color: var(--navy); background: #fff; border: 1.5px solid var(--line); }
+  .side .field > span { color: var(--navy); }
+  .side .btn.primary { width: 100%; }
+  .side .btn:not(.primary) { background: #fff; border-color: var(--navy); width: 100%; }
+  .dlbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .log { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--mute); }
+  .log:empty { display: none; }
+  .log li.ok { color: var(--green-ink); font-weight: 700; }
+  .log li.bad { color: var(--red); font-weight: 700; }
+  .sumbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 2px 0 12px; }
+  .chip { font: inherit; font-size: 13px; font-weight: 800; padding: 7px 15px; border-radius: 999px; border: 2px solid var(--navy); background: #fff; color: var(--navy); cursor: pointer; }
+  .chip[aria-pressed=true] { background: var(--grad); color: #fff; border-color: #fff; text-shadow: 0 1px 2px rgba(18,37,80,.4); box-shadow: 0 0 0 2px rgba(255,86,24,.35), 0 6px 14px rgba(255,86,24,.35); }
+  .meta { font-size: 13px; color: var(--mute); font-weight: 600; margin: 0 0 12px; word-break: break-word; }
+  .meta strong { color: var(--navy); }
+  td.ord { color: var(--mute); font-weight: 800; width: 48px; }
+  td.time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.time small { display: block; color: var(--mute); font-size: 11.5px; }
+  td.nm { font-weight: 700; color: var(--blue); word-break: break-word; }
+  td.nm small { display: block; color: var(--mute); font-weight: 500; font-size: 11.5px; word-break: break-all; }
+  td.nm .unres { color: var(--orange-ink); font-weight: 700; }
+  .kind { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; white-space: nowrap; }
+  .kind .oi { width: 26px; height: 26px; }
+  .vab.succ { background: #E3F6EC; color: #176B43; }
+  .vab.fail { background: #FEF3F2; color: #B42318; }
+  .tablewrap { max-height: calc(100vh - 300px); }
+  .fnote { color: var(--mute); font-size: 12px; }
+  .sumbar .spacer { margin-left: auto; display: flex; gap: 8px; }
+  tr.grp td { background: #fff; }
+  tr.grp.open td { background: #FFF6F1; }
+  tr.child td { background: #F7FAFD; border-bottom: 1px solid #E3EAF4; }
+  tr.child td:first-child { box-shadow: inset 4px 0 0 var(--cyan); }
+  tr.child td.nm { padding-left: 34px; }
+  tr.child .oi { width: 24px; height: 24px; }
+  tr.child .kind { padding-left: 22px; color: var(--blue); }
+  .kind .twisty { width: 24px; height: 24px; font-size: 11px; color: var(--navy); background: #EEF1F8; border-radius: 50%; }
+  .kind .twisty:hover:not(:disabled) { background: #FFE1D4; }
+  .kind .tw-sp { display: inline-block; width: 24px; flex: none; }
+  .tkn.ms { margin-left: 6px; white-space: nowrap; }
+  .vab.none { background: #FFFAEB; color: #B54708; }
+  .modebar { margin: 0 0 14px; }
+  .drop { display: block; border: 2px dashed var(--navy); border-radius: 14px; padding: 18px 14px; text-align: center; cursor: pointer; background: #fff; transition: background .15s; }
+  .drop:hover, .drop.over { background: #FFF6F1; border-color: var(--orange); }
+  .drop strong { display: block; color: var(--navy); font-size: 14px; }
+  .drop span { color: var(--mute); font-size: 12px; }
+  .bar { height: 10px; border-radius: 999px; background: #E3EAF4; overflow: hidden; margin: 10px 0 4px; }
+  .bar > div { height: 100%; width: 0; background: var(--grad); transition: width .25s; }
+  #btable td, #btable th { white-space: nowrap; font-size: 12.5px; }
+  #btable th { white-space: normal; min-width: 110px; vertical-align: bottom; }
+  #btable td:first-child, #btable th:first-child { position: sticky; left: 0; z-index: 2; background: #fff; min-width: 290px; box-shadow: 2px 0 0 #E3EAF4; }
+  #btable td.id button { font: inherit; font-weight: 700; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+  #btable td.st { font-weight: 700; }
+  #btable td.st.bad { color: var(--red); } #btable td.st.warn { color: var(--orange-ink); } #btable td.st.good { color: var(--green-ink); }
+  .vtok { display: inline-block; font-weight: 800; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; margin-right: 4px; background: #EEF1F8; color: var(--navy); }
+  .vtok.succ { background: #E3F6EC; color: #176B43; } .vtok.fail { background: #FEF3F2; color: #B42318; } .vtok.cnt { background: #E8F1FB; color: var(--blue); }
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="rail" aria-label="Connection">
     <div class="logo"><img alt="Genesys" width="129" height="33" src="data:image/png;base64,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" /></div>
-    <div class="appname">Flow Exporter</div>
+    <div class="appname">Interaction Outcomes</div>
     <div class="org" id="orgBadge" hidden>Org: <strong id="orgName"></strong></div>
     <label class="field"><span>Genesys Cloud region</span><select id="region"></select></label>
     <label class="field"><span>OAuth client ID</span>
       <input type="text" id="clientId" placeholder="Paste the PKCE OAuth client ID" autocomplete="off" spellcheck="false" /></label>
     <button class="btn primary" id="authBtn" type="button">Sign in to Genesys Cloud</button>
     <p class="railnote">Region and client ID are retained in this browser; the access token is session-only.</p>
-    <section class="types" id="typesPanel" aria-label="Flow types" hidden>
-      <button class="types-head" id="typesHead" type="button" aria-expanded="true"><span>Flow types</span><span class="chev" id="typesChev">▼</span></button>
-      <ul id="typeList"></ul>
-    </section>
+    <p class="railnote">The OAuth client needs read access to analytics conversation details and Architect flows (outcomes and milestones), and the user needs matching permissions.</p>
     <p class="railnote redir">Redirect URI to register on the OAuth client:<code id="redirectUri"></code></p>
   </aside>
 
@@ -175,47 +231,96 @@
 
     <section class="welcome" id="welcome">
       <h2>Connect to a Genesys Cloud org</h2>
-      <p>Choose a region, paste the PKCE client ID and sign in. Your flow types and flows appear here once you are connected.</p>
+      <p>Choose a region, paste the PKCE client ID and sign in. You can then look up the Architect outcomes and milestones recorded against one interaction, or against a whole spreadsheet of interaction IDs.</p>
     </section>
 
     <main class="workspace" id="workspace" hidden>
-      <section aria-label="Flows">
-        <h1 class="flows-title" id="flowTitle">Flows</h1>
+      <section aria-label="Results" id="singleView">
+        <h1 class="flows-title">Outcomes &amp; milestones</h1>
+        <p class="meta" id="meta">Enter an interaction (conversation) ID and choose Retrieve.</p>
+        <div class="msg info" id="notes" hidden></div>
+        <div class="sumbar" id="sumbar" hidden>
+          <button class="chip" type="button" data-v="group" aria-pressed="true">Grouped by outcome</button>
+          <button class="chip" type="button" data-v="flat" aria-pressed="false">Timeline</button>
+          <span class="fnote" id="counts"></span>
+          <span class="spacer" id="grpBtns"><button class="btn small" id="expAll" type="button">Expand all</button><button class="btn small" id="colAll" type="button">Collapse all</button></span>
+        </div>
         <div class="card">
-          <div id="flowsEmpty" class="empty">Select a flow type to list its flows.</div>
-          <div id="flowsBody" hidden>
-            <div class="flows-bar">
-              <input type="text" id="filter" placeholder="Filter by name, description or division" autocomplete="off" />
-              <span class="vaprog" id="vaProgress"></span>
-              <span class="count" id="flowCount"></span>
-            </div>
+          <div id="empty" class="empty">No results yet.</div>
+          <div id="body" hidden>
             <div class="tablewrap">
               <table>
                 <thead><tr>
-                  <th class="chk"><input type="checkbox" id="selAll" aria-label="Select all listed flows" /></th>
-                  <th>Name</th><th>Description</th><th>Division</th><th class="vacol" id="thVa" title="Whether virtual agent is switched on in the flow's bot settings (latest saved version)">Virtual agent</th>
+                  <th>#</th><th>Time</th><th>Type</th><th>Name (from Architect)</th><th>Result</th><th>Flow</th><th>Participant</th>
                 </tr></thead>
-                <tbody id="flowRows"></tbody>
+                <tbody id="rows"></tbody>
               </table>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="side" aria-label="Export">
-        <h2>Export</h2>
-        <div class="side-actions">
-          <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
-          <button class="btn primary" id="tfBtn" type="button" disabled>Export to Terraform</button>
-          <span class="progress" id="progress"></span>
-        </div>
-        <p class="note">Downloads go to your browser's default download folder, one file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it.</p>
-        <div class="deps" id="deps" hidden>
-          <div class="deps-head">
-            <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
-            <span class="deps-btns"><button class="btn small" id="expandBtn" type="button">Expand all</button><button class="btn small" id="csvBtn" type="button">Download list (.csv)</button></span>
+      <section aria-label="Bulk results" id="bulkView" hidden>
+        <h1 class="flows-title">Spreadsheet results</h1>
+        <p class="meta" id="bmeta">Choose a spreadsheet of interaction IDs, then choose Retrieve.</p>
+        <div class="msg info" id="bnotes" hidden></div>
+        <div class="card">
+          <div id="bempty" class="empty">No results yet.</div>
+          <div id="bbody" hidden>
+            <div class="tablewrap"><table id="btable"><thead id="bhead"></thead><tbody id="brows"></tbody></table></div>
           </div>
-          <div id="depBody"></div>
+        </div>
+      </section>
+
+      <section class="side" aria-label="Lookup">
+        <div class="sumbar modebar" id="modeBar">
+          <button class="chip" type="button" data-m="single" aria-pressed="true">Single interaction</button>
+          <button class="chip" type="button" data-m="bulk" aria-pressed="false">Spreadsheet</button>
+        </div>
+        <div id="bulkPanel" hidden>
+          <h2>Spreadsheet of interaction IDs</h2>
+          <label class="drop" id="drop"><input type="file" id="xlsFile" accept=".xlsx,.xls,.xlsm,.csv,.txt" hidden />
+            <strong>Choose a spreadsheet</strong><span>or drop it here (.xlsx, .xls or .csv)</span></label>
+          <p class="note" id="fileInfo">The sheet needs a column of interaction IDs. Any other column headings are used as the columns of the summary.</p>
+          <label class="field"><span>Search back (async job fallback)</span>
+            <select id="lookback2">
+              <option value="31">Last 31 days</option>
+              <option value="93">Last 3 months</option>
+              <option value="186">Last 6 months</option>
+              <option value="366">Last 12 months</option>
+            </select></label>
+          <button class="btn primary" id="bulkBtn" type="button" disabled>Retrieve outcomes &amp; milestones</button>
+          <button class="btn" id="bulkStop" type="button" hidden>Stop</button>
+          <div class="bar" id="bar" hidden><div id="barFill"></div></div>
+          <p class="note" id="barText"></p>
+          <ul class="log" id="blog"></ul>
+          <h2>Download</h2>
+          <div class="dlbtns">
+            <button class="btn" id="sumCsv" type="button" disabled>Summary CSV</button>
+            <button class="btn" id="detCsv" type="button" disabled>Detail CSV</button>
+          </div>
+          <p class="note"><strong>Summary</strong>: one row per interaction with your sheet's columns filled in (outcome columns show SUCCESS or FAILURE; milestone columns show how many times the milestone was reached). <strong>Detail</strong>: one row per outcome or milestone, in order of encounter.</p>
+        </div>
+        <div id="singlePanel">
+        <h2>Interaction</h2>
+        <label class="field"><span>Interaction (conversation) ID</span>
+          <input type="text" id="convId" placeholder="e.g. 3f2a9c1e-…" autocomplete="off" spellcheck="false" /></label>
+        <label class="field"><span>Search back (async job fallback)</span>
+          <select id="lookback">
+            <option value="31">Last 31 days</option>
+            <option value="93">Last 3 months</option>
+            <option value="186">Last 6 months</option>
+            <option value="366">Last 12 months</option>
+          </select></label>
+        <button class="btn primary" id="goBtn" type="button">Retrieve</button>
+        <ul class="log" id="log"></ul>
+        <p class="note">Recent interactions are fetched directly from analytics (available within minutes). If not found there, the asynchronous conversation details job is used, one job per 31-day window, newest first; that job lags real time by roughly 12 to 48 hours. Each outcome and milestone ID is then looked up in Architect to show its name.</p>
+        <h2>Download</h2>
+        <div class="dlbtns">
+          <button class="btn" id="csvBtn" type="button" disabled>CSV</button>
+          <button class="btn" id="jsonBtn" type="button" disabled>JSON</button>
+        </div>
+        <p class="note">Downloads contain every event in order of encounter, whatever filter is showing on screen.</p>
         </div>
       </section>
     </main>
@@ -245,28 +350,15 @@ const REGIONS = [
   ['ap-northeast-3 (Osaka)', 'apne3.pure.cloud'],
 ];
 
-const FLOW_TYPES = [
-  ['Inbound Call', 'inboundcall'], ['Inbound Message', 'inboundshortmessage'], ['Inbound Email', 'inboundemail'],
-  ['Inbound Chat', 'inboundchat'], ['Outbound Call', 'outboundcall'], ['Bot Flow', 'bot'],
-  ['Digital Bot Flow', 'digitalbot'], ['Common Module', 'commonmodule'], ['In-Queue Call', 'inqueuecall'],
-  ['In-Queue Email', 'inqueueemail'], ['In-Queue Message', 'inqueueshortmessage'], ['Secure Call', 'securecall'],
-  ['Voicemail', 'voicemail'], ['Workflow', 'workflow'], ['Workitem Flow', 'workitem'],
-  ['Voice Survey', 'voice'], ['Web Survey Invite', 'surveyinvite'],
-];
-
-// Dependency categories shown in the panel (order = display order).
-const DEP_GROUPS = [
-  ['Milestones', /MILESTONE/], ['Outcomes', /OUTCOME/], ['Data Actions', /DATAACTION|INTEGRATIONACTION|CUSTOMACTION/],
-  ['Data Tables', /DATATABLE/], ['Queues', /QUEUE/], ['Skills', /SKILL/], ['Prompts', /PROMPT/],
-];
-
 const K = {
-  cfg: 'gcFlowExporter.config.v1',
-  token: 'gcFlowExporter.token.v1',
-  verifier: 'gcFlowExporter.verifier.v1',
-  state: 'gcFlowExporter.state.v1',
+  cfg: 'gcInteractionOutcomes.config.v1',
+  token: 'gcInteractionOutcomes.token.v1',
+  verifier: 'gcInteractionOutcomes.verifier.v1',
+  state: 'gcInteractionOutcomes.state.v1',
 };
 const REDIRECT_URI = location.origin + location.pathname;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DAY = 86400000;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -274,24 +366,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const S = {
   token: null, org: null, domain: null,
-  flowType: null, typesOpen: true, flows: [], selected: new Set(), loadSeq: 0, loading: false, loadError: false,
-  deps: new Map(),          // flowId -> {flow, groups:[{label,items[]}], error, loading}
-  depOff: new Set(), depOpen: new Set(), depByTask: new Set(), taskOpen: new Set(),    // category labels the user unticked
-  busy: false,
-  va: new Map(),            // flowId -> {state:'on'|'off'|'na'|'err', agentic, msg} (virtual agent status)
+  busy: false, runSeq: 0,
+  result: null,            // { conversationId, conversationStart, conversationEnd, interval, events[] }
+  mode: 'single',
+  bulk: { ids: [], templateCols: [], fileName: '', sheetName: '', results: new Map(), columns: [], rows: [], running: false, done: 0, notes: [] },
+  view: 'group', open: new Set(),   // 'group' = outcomes with expandable milestones, 'flat' = single timeline
+  names: new Map(),        // 'milestone:id' | 'outcome:id' -> Promise<{name, description, error}>
 };
 
 /* ---------- messages ---------- */
-function showMsg(text, kind = 'error') {
-  const m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; m.hidden = false;
-}
+function showMsg(text, kind = 'error') { const m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; m.hidden = false; }
 function clearMsg() { $('msg').hidden = true; $('msg').textContent = ''; }
 
 /* ---------- config ---------- */
 function loadCfg() { try { return JSON.parse(localStorage.getItem(K.cfg) || '{}'); } catch { return {}; } }
-function saveCfg() {
-  localStorage.setItem(K.cfg, JSON.stringify({ clientId: $('clientId').value.trim(), domain: $('region').value }));
-}
+function saveCfg() { localStorage.setItem(K.cfg, JSON.stringify({ clientId: $('clientId').value.trim(), domain: $('region').value })); }
 
 /* ---------- PKCE helpers ---------- */
 function b64url(buf) {
@@ -325,11 +414,8 @@ function explainAuthError(code, desc) {
   const base = known[code] || `Sign-in error "${code}".`;
   return desc && desc !== code ? `${base}\nDetail from Genesys Cloud: ${desc}` : base;
 }
-
 function describeNetworkError(e, host) {
-  if (e instanceof TypeError) {
-    return `Could not reach ${host}. Check the selected region is correct for this org and that your network or browser is not blocking the request.`;
-  }
+  if (e instanceof TypeError) return `Could not reach ${host}. Check the selected region is correct for this org and that your network or browser is not blocking the request.`;
   return e.message || String(e);
 }
 
@@ -338,7 +424,7 @@ async function signIn() {
   clearMsg();
   const clientId = $('clientId').value.trim();
   if (!clientId) return showMsg('Paste the OAuth client ID first.');
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId))
+  if (!GUID.test(clientId))
     return showMsg('That does not look like a Genesys Cloud client ID (expected a GUID such as 584c1e79-568e-4d71-91ff-3e00bf01d04b).');
   if (!window.crypto || !crypto.subtle)
     return showMsg('This browser context cannot do PKCE (Web Crypto unavailable). Open the page over https:// or http://localhost.');
@@ -397,7 +483,7 @@ async function api(path, opts = {}, tries = 0, refreshed = false) {
     try { await refreshToken(); } catch (e) { sessionExpired(); throw new Error('Your session has expired. Please sign in again.'); }
     return api(path, opts, tries, true);
   }
-  if (res.status === 429 && tries < 4) {
+  if (res.status === 429 && tries < 6) {
     const wait = (parseFloat(res.headers.get('Retry-After')) || 2) * 1000;
     await sleep(wait);
     return api(path, opts, tries + 1, refreshed);
@@ -442,9 +528,7 @@ async function loadOrg() {
   try {
     const org = await api('/api/v2/organizations/me');
     S.org = org.thirdPartyOrgName || org.name || org.id;
-  } catch (e) {
-    throw new Error('Signed in, but the organization could not be read: ' + e.message);
-  }
+  } catch (e) { throw new Error('Signed in, but the organization could not be read: ' + e.message); }
 }
 
 async function restoreSession() {
@@ -455,14 +539,12 @@ async function restoreSession() {
 }
 
 function clearSession() {
-  S.token = null; S.org = null;
+  S.token = null; S.org = null; S.runSeq++; S.busy = false; S.result = null; S.names = new Map();
+  S.bulk.results = new Map(); S.bulk.columns = []; S.bulk.rows = []; S.bulk.running = false;
   sessionStorage.removeItem(K.token);
-  Object.assign(S, { flowType: null, flows: [], selected: new Set(), deps: new Map(), typesOpen: true, loadSeq: S.loadSeq + 1, loading: false, loadError: false, va: new Map() });
   renderAll();
 }
-function sessionExpired() {
-  clearSession(); showMsg('Your session has expired. Please sign in again.', 'warn');
-}
+function sessionExpired() { clearSession(); showMsg('Your session has expired. Please sign in again.', 'warn'); }
 
 async function signOut() {
   clearMsg();
@@ -471,414 +553,436 @@ async function signOut() {
   clearSession();
 }
 
-/* ---------- flows ---------- */
-/* ---------- virtual agent status (bot flows) ---------- */
-const VA_TYPES = new Set(['bot', 'digitalbot']);
-const showVa = () => VA_TYPES.has(S.flowType);
-function vaCell(id) {
-  const v = S.va.get(id);
-  if (!v) return '<span class="vab pend"><span class="spinner"></span>Checking</span>';
-  if (v.state === 'on') return `<span class="vab on" title="Virtual agent is switched on in this flow's bot settings">✓ Activated${v.agentic ? ' · agentic' : ''}</span>`;
-  if (v.state === 'off') return '<span class="vab off" title="Virtual agent is not switched on in this flow\'s bot settings">– Not activated</span>';
-  if (v.state === 'na') return '<span class="vab off" title="This flow has no bot settings">– Not applicable</span>';
-  return `<span class="vab err" title="${esc(v.msg || 'Could not read the flow configuration')}">! Unavailable</span>`;
+/* ---------- analytics job ---------- */
+const FAILED_STATES = new Set(['FAILED', 'FAULTED', 'CANCELLED', 'CANCELED', 'EXPIRED']);
+
+function logLine(text, cls) {
+  const li = document.createElement('li'); if (cls) li.className = cls; li.innerHTML = text; $('log').appendChild(li); return li;
 }
-async function loadVirtualAgent(seq) {
-  const bar = $('vaProgress');
-  if (!showVa()) { bar.textContent = ''; return; }
-  const flows = S.flows.slice(); const todo = flows.filter((f) => !S.va.has(f.id)); let next = 0;
-  const progress = () => {
-    const done = flows.filter((f) => S.va.has(f.id)).length;
-    bar.innerHTML = done < flows.length ? `<span class="spinner"></span>Checking virtual agent ${done} of ${flows.length}` : '';
-  };
-  progress();
+
+// Runs one async details job for one or more conversation IDs; resolves with every conversation returned.
+async function runJobIds(ids, startMs, endMs, seq) {
+  const interval = `${new Date(startMs).toISOString()}/${new Date(endMs).toISOString()}`;
+  const job = await api('/api/v2/analytics/conversations/details/jobs', {
+    method: 'POST',
+    body: JSON.stringify({
+      interval,
+      order: 'asc', orderBy: 'conversationStart',
+      conversationFilters: [{ type: ids.length === 1 ? 'and' : 'or', predicates: ids.map((id) => ({ type: 'dimension', dimension: 'conversationId', operator: 'matches', value: id })) }],
+    }),
+  });
+  const jobId = job && (job.jobId || job.id);
+  if (!jobId) throw new Error('The analytics job was created but no job ID was returned. Response: ' + JSON.stringify(job));
+
+  // poll until finished
+  const t0 = Date.now(); let delay = 1000;
+  for (;;) {
+    if (seq !== S.runSeq) return null;
+    const st = await api(`/api/v2/analytics/conversations/details/jobs/${encodeURIComponent(jobId)}`);
+    const state = String((st && st.state) || '').toUpperCase();
+    if (state === 'FULFILLED') break;
+    if (FAILED_STATES.has(state)) throw new Error(`The analytics job ended in state ${state}${st.errorMessage ? ': ' + st.errorMessage : ''}.`);
+    if (Date.now() - t0 > 5 * 60 * 1000) throw new Error('Timed out waiting for the analytics job (5 minutes).');
+    await sleep(delay); delay = Math.min(delay + 500, 4000);
+  }
+
+  // read result pages
+  const convs = []; let cursor = null;
+  do {
+    if (seq !== S.runSeq) return null;
+    const q = new URLSearchParams({ pageSize: '500' }); if (cursor) q.set('cursor', cursor);
+    const page = await api(`/api/v2/analytics/conversations/details/jobs/${encodeURIComponent(jobId)}/results?${q}`);
+    (page.conversations || []).forEach((c) => convs.push(c));
+    cursor = page.cursor || null;
+  } while (cursor);
+  return { interval, convs };
+}
+async function runJob(conversationId, startMs, endMs, seq) {
+  const r = await runJobIds([conversationId], startMs, endMs, seq);
+  if (!r) return null;
+  return { interval: r.interval, conv: r.convs.find((c) => c.conversationId === conversationId) || null };
+}
+
+
+
+/* ---------- near-real-time lookups (used before the async job) ---------- */
+// The async job reads from the analytics data lake, which lags real time by roughly 12-48 hours.
+// These two synchronous endpoints return recent interactions within minutes.
+async function fetchById(id) {
+  try { return await api(`/api/v2/analytics/conversations/${encodeURIComponent(id)}/details`); }
+  catch (e) { if (e.status === 404) return null; throw e; }
+}
+async function fetchByQuery(id) {
+  const end = Date.now(), start = end - 7 * DAY;
+  const interval = `${new Date(start).toISOString()}/${new Date(end).toISOString()}`;
+  const r = await api('/api/v2/analytics/conversations/details/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      interval, order: 'asc', orderBy: 'conversationStart', paging: { pageSize: 25, pageNumber: 1 },
+      conversationFilters: [{ type: 'and', predicates: [{ type: 'dimension', dimension: 'conversationId', operator: 'matches', value: id }] }],
+    }),
+  });
+  return { interval, conv: ((r && r.conversations) || []).find((c) => c.conversationId === id) || null };
+}
+async function jobAvailability() {
+  try { const a = await api('/api/v2/analytics/conversations/details/jobs/availability'); return a && a.dataAvailabilityDate; }
+  catch { return null; }
+}
+
+/* ---------- event extraction ---------- */
+function firstKey(obj, test) { const k = Object.keys(obj || {}).find(test); return k ? obj[k] : undefined; }
+function pickTime(o) {
+  const direct = o.timestamp || o.milestoneTimestamp || o.flowMilestoneTimestamp || o.eventTime;
+  if (direct) return direct;
+  return firstKey(o, (k) => /time|date/i.test(k) && typeof o[k] === 'string');
+}
+function msOf(ts) { const n = Date.parse(ts); return Number.isNaN(n) ? null : n; }
+
+// Find milestone-like arrays anywhere inside a flow object (the documented schema has none, but newer
+// API versions may add them, so this is checked first).
+function walkMilestones(o, out, depth = 0) {
+  if (!o || typeof o !== 'object' || depth > 6) return;
+  for (const [k, v] of Object.entries(o)) {
+    if (/milestone/i.test(k) && Array.isArray(v) && v.length && typeof v[0] === 'object') v.forEach((m) => out.push(m));
+    else if (v && typeof v === 'object') walkMilestones(v, out, depth + 1);
+  }
+}
+function walkMetrics(o, out, depth = 0) {
+  if (!o || typeof o !== 'object' || depth > 6) return;
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'metrics' && Array.isArray(v)) v.forEach((m) => out.push(m));
+    else if (v && typeof v === 'object') walkMetrics(v, out, depth + 1);
+  }
+}
+function sortEvents(ev) {
+  const key = (e) => (e.sortMs ?? e.ms);
+  ev.forEach((e, i) => (e._i = i));
+  ev.sort((a, b) => {
+    const x = key(a), y = key(b);
+    if (x === null && y === null) return a._i - b._i;
+    if (x === null) return 1; if (y === null) return -1;
+    return x - y || a._i - b._i;
+  });
+  ev.forEach((e, i) => { e.order = i + 1; delete e._i; });
+  return ev;
+}
+
+function buildEvents(conv) {
+  const ev = [], metricMs = [];
+  (conv.participants || []).forEach((p) => (p.sessions || []).forEach((s) => {
+    const fl = s.flow;
+    const base = {
+      flowName: (fl && fl.flowName) || '', flowType: (fl && fl.flowType) || '', flowVersion: (fl && fl.flowVersion) || '', flowId: (fl && fl.flowId) || '',
+      participant: p.purpose || '', participantName: p.participantName || '', sessionId: s.sessionId || '',
+    };
+    // milestone IDs, if analytics ever supplies them as structured data
+    const ms = []; if (fl) walkMilestones(fl, ms);
+    ms.forEach((m) => {
+      const id = m.milestoneId || m.flowMilestoneId || m.id || firstKey(m, (k) => /milestoneid/i.test(k)) || '';
+      const ts = pickTime(m) || '';
+      ev.push({ ...base, kind: 'Milestone', id, outcomeId: m.flowOutcomeId || '', ts, ms: msOf(ts), precision: 'exact', hint: m.milestoneName || m.flowMilestone || m.name || '', value: '', end: '', durationMs: null });
+    });
+    // milestone *metrics* (timestamp only, no ID) - what analytics really holds today
+    const mets = []; walkMetrics(s, mets);
+    const named = (n) => mets.filter((m) => m && m.name === n);
+    const src = named('nFlowMilestone').length ? named('nFlowMilestone') : named('oFlowMilestone');
+    src.forEach((m) => {
+      const n = Math.max(1, Math.min(50, Math.round(Number(m.value) || 1)));
+      for (let i = 0; i < n; i++) metricMs.push({ ...base, ts: m.emitDate || '', ms: msOf(m.emitDate) });
+    });
+    if (fl) (fl.outcomes || []).forEach((o) => {
+      const ts = o.flowOutcomeStartTimestamp || pickTime(o) || '';
+      const end = o.flowOutcomeEndTimestamp || '';
+      const a = msOf(ts), b = msOf(end);
+      ev.push({ ...base, kind: 'Outcome', id: o.flowOutcomeId || '', instanceId: o.outcomeId || '', ts, ms: a, precision: 'exact', hint: o.flowOutcome || o.flowOutcomeName || '', value: o.flowOutcomeValue || '', end, durationMs: a !== null && b !== null ? b - a : null });
+    });
+  }));
+  metricMs.sort((x, y) => (x.ms ?? Infinity) - (y.ms ?? Infinity));
+  return { events: sortEvents(ev), metricMs };
+}
+
+/* ---------- milestone IDs: flow aggregates + milestone metrics ---------- */
+// Conversation details only carry a timestamped milestone *count* (metrics). The IDs are available from the
+// flow aggregates query grouped by flowMilestoneId, filtered to this conversation, in 1-minute buckets.
+// The two are joined per minute: a minute with a single milestone ID gets an exact timestamp for each hit;
+// a minute with several different IDs cannot be ordered, so those rows are marked as minute-level.
+async function fetchMilestoneAggregates(conv, metricMs) {
+  const t0 = [msOf(conv.conversationStart), ...metricMs.map((m) => m.ms)].filter((x) => x !== null);
+  const t1 = [msOf(conv.conversationEnd) ?? Date.now(), ...metricMs.map((m) => m.ms)].filter((x) => x !== null);
+  if (!t0.length) throw new Error('the interaction has no timestamps to search around');
+  const startB = Math.floor(Math.min(...t0) / 60000) * 60000 - 60000;
+  const endB = Math.ceil(Math.max(...t1) / 60000) * 60000 + 60000;
+  const span = endB - startB;
+  const interval = `${new Date(startB).toISOString()}/${new Date(endB).toISOString()}`;
+  const filter = { type: 'and', predicates: [{ type: 'dimension', dimension: 'conversationId', operator: 'matches', value: conv.conversationId }] };
+  const attempt = async (groupBy) => api('/api/v2/analytics/flows/aggregates/query', {
+    method: 'POST',
+    body: JSON.stringify({ interval, ...(span <= 24 * 3600000 ? { granularity: 'PT1M' } : {}), groupBy, metrics: ['oFlowMilestone'], filter }),
+  });
+  let res;
+  try { res = await attempt(['flowMilestoneId', 'flowOutcomeId']); }
+  catch (e) { if (e.status === 400) res = await attempt(['flowMilestoneId']); else throw e; }
+  const entries = [];
+  ((res && res.results) || []).forEach((g) => {
+    const id = g.group && g.group.flowMilestoneId; if (!id) return;
+    (g.data || []).forEach((d) => {
+      const m = (d.metrics || []).find((x) => x.metric === 'oFlowMilestone'); if (!m) return;
+      const count = Math.round((m.stats && (m.stats.count ?? m.stats.sum)) || 0); if (!count) return;
+      const bucket = String(d.interval || '').split('/')[0];
+      entries.push({ id, outcomeId: (g.group && g.group.flowOutcomeId) || '', count, bucket: msOf(bucket) });
+    });
+  });
+  return { entries, gran: span <= 24 * 3600000 };
+}
+
+function joinMilestones(aggEntries, gran, metricMs) {
+  const rows = []; let approx = 0;
+  const key = (ms) => (gran && ms !== null ? Math.floor(ms / 60000) * 60000 : 'all');
+  const buckets = new Map();
+  const get = (k) => { if (!buckets.has(k)) buckets.set(k, { A: [], E: [] }); return buckets.get(k); };
+  aggEntries.forEach((a) => get(key(a.bucket)).A.push(a));
+  metricMs.forEach((m) => get(key(m.ms)).E.push(m));
+  const mk = (extra) => ({ kind: 'Milestone', value: '', end: '', durationMs: null, hint: '', ...extra });
+  for (const [k, { A, E }] of buckets) {
+    const total = A.reduce((s, a) => s + a.count, 0);
+    const ids = new Set(A.map((a) => a.id));
+    if (!A.length) { E.forEach((m) => rows.push(mk({ ...m, id: '', outcomeId: '', precision: 'exact' }))); continue; }
+    if (ids.size === 1 && E.length) {
+      const a = A[0];
+      for (let i = 0; i < Math.max(total, E.length); i++) {
+        const m = E[i];
+        if (m && i < total) rows.push(mk({ ...m, id: a.id, outcomeId: a.outcomeId, precision: 'exact' }));
+        else if (m) rows.push(mk({ ...m, id: '', outcomeId: '', precision: 'exact' }));
+        else { rows.push(mk({ ...(E[0] || {}), id: a.id, outcomeId: a.outcomeId, ts: new Date(k === 'all' ? Date.now() : k).toISOString(), ms: k === 'all' ? null : k, sortMs: (E[E.length - 1] || {}).ms ?? null, precision: 'minute' })); approx++; }
+      }
+      continue;
+    }
+    // several different IDs in this minute (or no timestamps): the order cannot be recovered
+    const stamp = k === 'all' ? '' : new Date(k).toISOString();
+    let n = 0;
+    A.forEach((a) => { for (let i = 0; i < a.count; i++) { rows.push(mk({ ...(E[0] || {}), id: a.id, outcomeId: a.outcomeId, ts: stamp, ms: k === 'all' ? null : k, sortMs: (E[n] || E[E.length - 1] || {}).ms ?? null, precision: k === 'all' ? 'unordered' : 'minute' })); n++; approx++; } });
+  }
+  return { rows, approx };
+}
+
+/* ---------- Architect name resolution ---------- */
+function resolveName(kind, id) {
+  if (!id) return Promise.resolve({ error: 'No ID returned by analytics' });
+  const key = kind + ':' + id;
+  if (!S.names.has(key)) {
+    const path = kind === 'milestone' ? `/api/v2/flows/milestones/${encodeURIComponent(id)}` : `/api/v2/flows/outcomes/${encodeURIComponent(id)}`;
+    S.names.set(key, api(path).then((d) => ({ name: d && d.name, description: d && d.description }))
+      .catch((e) => ({ error: e.status ? `HTTP ${e.status}: ${e.message}` : e.message })));
+  }
+  return S.names.get(key);
+}
+
+async function resolveAll(events, seq, onProgress) {
+  const keys = new Map();
+  const add = (kind, id) => { if (id) keys.set(kind + ':' + id, [kind, id]); };
+  events.forEach((e) => { add(e.kind === 'Milestone' ? 'milestone' : 'outcome', e.id); if (e.kind === 'Milestone') add('outcome', e.outcomeId); });
+  const uniq = [...keys.values()];
+  let done = 0, next = 0;
   const worker = async () => {
-    while (next < todo.length) {
-      if (seq !== S.loadSeq || !S.token) return;
-      const f = todo[next++];
-      try {
-        const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
-        const b = cfg && cfg.botFlowSettings;
-        S.va.set(f.id, !b || typeof b !== 'object' ? { state: 'na' }
-          : { state: (b.virtualAgentEnabled || b.agenticVirtualAgentEnabled) ? 'on' : 'off', agentic: !!b.agenticVirtualAgentEnabled });
-      } catch (e) { S.va.set(f.id, { state: 'err', msg: e.message }); }
-      if (seq !== S.loadSeq) return;
-      const td = document.querySelector(`td[data-va="${CSS.escape(f.id)}"]`);
-      if (td) td.innerHTML = vaCell(f.id);
-      progress();
+    while (next < uniq.length) {
+      if (seq !== S.runSeq) return;
+      const [kind, id] = uniq[next++];
+      await resolveName(kind, id);
+      onProgress(++done, uniq.length);
     }
   };
-  await Promise.all(Array.from({ length: 4 }, worker));   // 4 at a time keeps within API rate limits
-  if (seq === S.loadSeq) progress();
+  await Promise.all(Array.from({ length: 4 }, worker));
+  for (const e of events) {
+    if (!e.id) { e.noId = true; e.name = e.hint || 'Milestone (ID not available)'; e.resolved = true; e.resolveError = ''; e.description = ''; continue; }
+    const r = await resolveName(e.kind === 'Milestone' ? 'milestone' : 'outcome', e.id);
+    e.name = r.name || e.hint || ''; e.resolved = !!r.name; e.resolveError = r.name ? '' : (r.error || ''); e.description = r.description || '';
+    if (e.kind === 'Milestone' && e.outcomeId) { const o = await resolveName('outcome', e.outcomeId); e.outcomeName = o.name || ''; }
+  }
 }
 
-async function selectFlowType(value) {
+/* ---------- retrieve ---------- */
+async function retrieve() {
   clearMsg();
-  const seq = ++S.loadSeq;
-  Object.assign(S, { flowType: value, typesOpen: false, flows: [], selected: new Set(), deps: new Map(), loading: true, loadError: false, va: new Map() });
-  $('vaProgress').textContent = '';
-  $('filter').value = '';
+  if (S.busy) return;
+  const id = $('convId').value.trim().toLowerCase();
+  if (!GUID.test(id)) return showMsg('Enter a valid interaction ID (a GUID such as 3f2a9c1e-7b4d-4e0a-9c55-1d2e3f4a5b6c).');
+  const seq = ++S.runSeq;
+  S.busy = true; S.result = null; S.view = 'group'; S.open = new Set(); $('log').innerHTML = '';
   renderAll();
+
   try {
-    let page = 1, all = [], pageCount = 1;
-    do {
-      const d = await api(`/api/v2/flows?type=${encodeURIComponent(value)}&pageSize=100&pageNumber=${page}`);
-      all = all.concat(d.entities || []);
-      pageCount = d.pageCount || 1;
-      page++;
-    } while (page <= pageCount);
-    if (seq !== S.loadSeq) return;
-    all.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    S.flows = all; S.loading = false;
+    let found = null, lastInterval = '', source = '';
+
+    // 1. direct lookup by conversation ID (near real time, any age still held by analytics)
+    let li = logLine('<span class="spinner"></span>Looking up the interaction directly…');
+    found = await fetchById(id);
+    if (seq !== S.runSeq) return;
+    if (found) { source = 'Analytics conversation details (by ID)'; li.className = 'ok'; li.textContent = 'Found via direct lookup'; }
+    else li.textContent = 'Not available via direct lookup';
+
+    // 2. synchronous details query, last 7 days
+    if (!found) {
+      li = logLine('<span class="spinner"></span>Trying the synchronous details query (last 7 days)…');
+      const q = await fetchByQuery(id);
+      if (seq !== S.runSeq) return;
+      lastInterval = q.interval;
+      if (q.conv) { found = q.conv; source = 'Analytics details query (synchronous)'; li.className = 'ok'; li.textContent = 'Found via synchronous query'; }
+      else li.textContent = 'Not found via synchronous query';
+    }
+
+    // 3. asynchronous job, 31-day windows, newest first
+    if (!found) {
+      const lookbackMs = parseInt($('lookback').value, 10) * DAY;
+      const now = Date.now(), floor = now - lookbackMs;
+      let end = now;
+      while (end > floor && !found) {
+        const start = Math.max(end - 31 * DAY, floor);
+        const label = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(end).toISOString().slice(0, 10)}`;
+        li = logLine(`<span class="spinner"></span>Analytics job for ${label}…`);
+        const r = await runJob(id, start, end, seq);
+        if (seq !== S.runSeq) return;
+        lastInterval = r.interval;
+        if (r.conv) { found = r.conv; source = 'Analytics conversation details job (async)'; li.className = 'ok'; li.textContent = `Found in ${label}`; }
+        else li.textContent = `Not in ${label}`;
+        end = start;
+      }
+    }
+
+    if (!found) {
+      const avail = await jobAvailability();
+      showMsg(`Interaction ${id} was not found by the direct lookup, the synchronous query, or the async job (searched ${Math.round(parseInt($('lookback').value, 10))} days).\nCheck the ID is correct and belongs to this org/region, or widen "Search back".${avail ? `\nNote: the async job only holds data up to ${new Date(avail).toLocaleString()}.` : ''}`, 'warn');
+      return;
+    }
+
+    const ui = {
+      alwaysAggregate: true,
+      line: (h) => { const li = logLine(h); return { html: (x) => { li.innerHTML = x; }, text: (x, c) => { li.className = c || ''; li.textContent = x; } }; },
+      warn: (m, k) => showMsg(m, k),
+    };
+    const a = await analyse(found, seq, ui);
+    if (!a) return;
+    if (!a.events.length) showMsg('The interaction was found, but it has no flow outcomes or milestones recorded against it.', 'info');
+    if (!found.conversationEnd && $('msg').hidden) showMsg('This interaction has not ended yet, so the outcomes and milestones shown may be incomplete.', 'info');
+    S.result = { source, notes: a.notes, groups: a.groups, conversationId: id, conversationStart: found.conversationStart || '', conversationEnd: found.conversationEnd || '', interval: lastInterval, events: a.events };
   } catch (e) {
-    if (seq !== S.loadSeq) return;
-    S.loading = false; S.loadError = true;
-    showMsg('Could not list flows: ' + e.message + (e.status === 403 ? '\nThe signed-in user needs Architect > Flow > View, and the OAuth client needs the matching scope.' : ''));
+    if (seq === S.runSeq) {
+      showMsg('Could not retrieve the interaction: ' + e.message + (e.status === 403 ? '\nThe signed-in user and OAuth client need permission to read analytics conversation details.' : ''));
+    }
+  } finally {
+    if (seq === S.runSeq) { S.busy = false; renderAll(); }
   }
-  renderAll();
-  if (!S.loadError) loadVirtualAgent(seq);
 }
 
-function visibleFlows() {
-  const q = $('filter').value.trim().toLowerCase();
-  if (!q) return S.flows;
-  return S.flows.filter((f) => [f.name, f.description, f.division && f.division.name].some((v) => (v || '').toLowerCase().includes(q)));
-}
-
-/* ---------- YAML ---------- */
-function yamlKey(k) { return /^[A-Za-z_][A-Za-z0-9_.\-]*$/.test(k) && !/^(true|false|null|yes|no|on|off|y|n)$/i.test(k) ? k : JSON.stringify(k); }
-function yamlScalar(v) {
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  const s = String(v);
-  if (s === '') return "''";
-  const risky = /^[\s\-?:,\[\]{}#&*!|>'"%@`.+\d~]|\s$|: |\s#|:$|[\n\r\t]/.test(s) || /^(true|false|null|yes|no|on|off|y|n)$/i.test(s);
-  return risky ? JSON.stringify(s) : s;
-}
-function yamlLines(v, depth) {
-  const pad = '  '.repeat(depth);
-  const isColl = (x) => x !== null && typeof x === 'object';
-  const isEmpty = (x) => (Array.isArray(x) ? x.length === 0 : Object.keys(x).length === 0);
-  const inline = (x) => (!isColl(x) ? yamlScalar(x) : Array.isArray(x) ? '[]' : '{}');
-  const out = [];
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      if (!isColl(item) || isEmpty(item)) { out.push(`${pad}- ${inline(item)}`); continue; }
-      const sub = yamlLines(item, depth + 1);
-      sub[0] = pad + '- ' + sub[0].slice((depth + 1) * 2);
-      out.push(...sub);
+/* ---------- analyse one found conversation: events, milestone IDs, names, grouping ---------- */
+// ui = { alwaysAggregate, line(html) -> { html(h), text(t, cls) }, warn(text, kind) }; resolves null if cancelled.
+async function analyse(found, seq, ui) {
+  const built = buildEvents(found);
+  const events = built.events, notes = [];
+  if (!events.some((e) => e.kind === 'Milestone') && (built.metricMs.length || ui.alwaysAggregate)) {
+    // analytics gave no milestone IDs: rebuild them from milestone metrics + flow aggregates
+    ui.line(`${built.metricMs.length} milestone event${built.metricMs.length === 1 ? '' : 's'} in the analytics metrics (timestamps only, no IDs)`);
+    const li2 = ui.line('<span class="spinner"></span>Looking up milestone IDs from flow aggregates…');
+    try {
+      const agg = await fetchMilestoneAggregates(found, built.metricMs);
+      if (seq !== S.runSeq) return null;
+      const j = joinMilestones(agg.entries, agg.gran, built.metricMs);
+      j.rows.forEach((r) => events.push(r));
+      const withId = j.rows.filter((r) => r.id).length;
+      li2.text(withId ? `Matched ${withId} milestone${withId === 1 ? '' : 's'} to IDs` : 'No milestone IDs returned by flow aggregates', withId ? 'ok' : '');
+      if (j.rows.length) notes.push('Genesys analytics does not store milestone IDs in the conversation record. Milestones here are rebuilt by joining the per-minute flow aggregates (which carry the IDs) with the timestamped milestone metrics. ' + (j.approx ? `${j.approx} milestone${j.approx === 1 ? '' : 's'} happened in a minute that contained several different milestones (or no timestamp), so their exact order and time within that minute is not recoverable; these show a minute-level time marked "~".` : 'Every milestone could be placed at its exact time.'));
+      if (!withId && built.metricMs.length) notes.push('Milestone events were recorded, but flow aggregates returned no IDs for them yet (aggregates can lag by a few minutes), so they are listed by time only.');
+    } catch (e) {
+      if (seq !== S.runSeq) return null;
+      li2.text('Flow aggregates unavailable: ' + e.message, 'bad');
+      built.metricMs.forEach((m) => events.push({ kind: 'Milestone', value: '', end: '', durationMs: null, hint: '', ...m, id: '', outcomeId: '', precision: 'exact' }));
+      notes.push(`Milestone IDs could not be retrieved (${e.message}). ${built.metricMs.length} milestone event${built.metricMs.length === 1 ? '' : 's'} are shown with their timestamps only.${e.status === 403 ? ' The user and OAuth client need permission to read flow aggregates (analytics flowAggregate view).' : ''}`);
     }
-  } else {
-    for (const k of Object.keys(v)) {
-      const val = v[k];
-      if (!isColl(val) || isEmpty(val)) out.push(`${pad}${yamlKey(k)}: ${inline(val)}`);
-      else { out.push(`${pad}${yamlKey(k)}:`); out.push(...yamlLines(val, depth + 1)); }
-    }
+    sortEvents(events);
   }
-  return out;
-}
-function toYaml(obj) {
-  if (obj === null || typeof obj !== 'object') return yamlScalar(obj) + '\n';
-  if ((Array.isArray(obj) ? obj.length : Object.keys(obj).length) === 0) return (Array.isArray(obj) ? '[]' : '{}') + '\n';
-  return yamlLines(obj, 0).join('\n') + '\n';
-}
-
-function download(filename, text, mime) {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const a = document.createElement('a'); a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-const safeName = (s) => String(s || 'flow').replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'flow';
-
-/* ---------- dependencies ---------- */
-// Manifest sections that are not exportable org configuration (platform-provided or internal to the flow).
-const NON_EXPORTABLE = /NLUDOMAIN|STTENGINE|TTSENGINE|SYSTEMPROMPT|^LANGUAGE$|FLOWACTION|FLOWDATATYPE/;
-// Friendly labels for other exportable manifest sections that can appear.
-const OTHER_LABELS = {
-  WRAPUPCODE: 'Wrap-up Codes', ACDWRAPUPCODE: 'Wrap-up Codes', SCHEDULE: 'Schedules', SCHEDULEGROUP: 'Schedule Groups',
-  EMERGENCYGROUP: 'Emergency Groups', GRAMMAR: 'Grammars', KNOWLEDGEBASE: 'Knowledge Bases', INTEGRATION: 'Integrations',
-  COMMONMODULE: 'Common Modules', COMMONMODULEFLOW: 'Common Modules', FLOW: 'Flows', GROUP: 'Groups',
-  RESPONSE: 'Responses', SCRIPT: 'Scripts', UTILIZATIONLABEL: 'Utilization Labels', DIVISION: 'Divisions',
-};
-function otherLabel(rawKey, norm) {
-  if (OTHER_LABELS[norm]) return OTHER_LABELS[norm];
-  const spaced = rawKey.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-// Build the dependency groups from the flow's own manifest (the same data that is in the exported YAML).
-function groupManifest(manifest, cfg) {
-  const groups = DEP_GROUPS.map(([label]) => ({ label, items: [] }));
-  const other = new Map();
-  const seen = new Set();
-  for (const [key, list] of Object.entries(manifest || {})) {
-    if (!Array.isArray(list) || !list.length) continue;
-    const norm = key.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (NON_EXPORTABLE.test(norm)) continue;
-    const idx = DEP_GROUPS.findIndex(([, re]) => re.test(norm));
-    let bucket;
-    if (idx >= 0) bucket = groups[idx];
-    else {
-      const label = otherLabel(key, norm);
-      if (!other.has(label)) other.set(label, { label, items: [] });
-      bucket = other.get(label);
-    }
-    for (const it of list) {
-      const id = it && it.id;
-      const uniq = bucket.label + '|' + (id || (it && it.name));
-      if (seen.has(uniq)) continue;
-      seen.add(uniq);
-      bucket.items.push({ id, name: (it && it.name) || id || '(unnamed)', version: it && it.version });
+  const nm = events.filter((e) => e.kind === 'Milestone').length, no = events.length - nm;
+  ui.line(`${nm} milestone${nm === 1 ? '' : 's'} and ${no} outcome${no === 1 ? '' : 's'} found`);
+  if (events.length) {
+    const li = ui.line('<span class="spinner"></span>Resolving Architect names…');
+    await resolveAll(events, seq, (d, t) => li.html(`<span class="spinner"></span>Resolving Architect names ${d} of ${t}…`));
+    if (seq !== S.runSeq) return null;
+    const bad = events.filter((e) => !e.resolved);
+    li.text(bad.length ? `Names resolved for ${events.length - bad.length} of ${events.length} events` : 'All names resolved', bad.length ? '' : 'ok');
+    if (bad.length) {
+      const msg = bad.find((e) => e.resolveError);
+      ui.warn(`${bad.length} event(s) could not be resolved to an Architect name, so the analytics label or ID is shown instead.${msg ? '\nFirst error: ' + msg.resolveError : ''}\nResolving names needs Architect flow view permission and a matching OAuth scope.`, 'warn');
     }
   }
-  const byName = (x, y) => (x.name || '').localeCompare(y.name || '', undefined, { sensitivity: 'base' });
-  groups.forEach((g) => g.items.sort(byName));
-  const extra = [...other.values()].sort((x, y) => x.label.localeCompare(y.label));
-  extra.forEach((g) => g.items.sort(byName));
-  const all = groups.concat(extra);
-  addTaskBreakdown(all, cfg);
+  return { events, notes, groups: linkMilestones(events) };
+}
+
+/* ---------- group milestones under their parent outcome ---------- */
+// A milestone carries the ID of the outcome it belongs to. If the interaction has several instances of that
+// outcome (e.g. in different flows), the milestone goes to the same session, then the instance whose
+// start/end window is nearest to the milestone's time.
+function linkMilestones(events) {
+  const tk = (e) => (e.sortMs ?? e.ms);
+  const groups = events.filter((e) => e.kind === 'Outcome').map((o) => ({ key: 'o' + o.order, outcome: o, milestones: [] }));
+  const synth = new Map(); const unlinked = { key: 'unlinked', outcome: null, milestones: [] };
+  events.filter((e) => e.kind === 'Milestone').forEach((m) => {
+    if (!m.outcomeId) { unlinked.milestones.push(m); return; }
+    let cand = groups.filter((g) => g.outcome.id === m.outcomeId);
+    if (!cand.length) {
+      let g = synth.get(m.outcomeId);
+      if (!g) {
+        g = { key: 's' + m.outcomeId, milestones: [], outcome: { kind: 'Outcome', synthetic: true, id: m.outcomeId, name: m.outcomeName || m.outcomeId, resolved: true, value: '', ts: '', ms: null, precision: 'exact', durationMs: null, flowName: m.flowName, flowType: m.flowType, flowVersion: m.flowVersion, participant: m.participant } };
+        synth.set(m.outcomeId, g);
+      }
+      g.milestones.push(m); return;
+    }
+    if (cand.length > 1) {
+      const sameSession = cand.filter((g) => m.sessionId && g.outcome.sessionId === m.sessionId);
+      if (sameSession.length) cand = sameSession;
+    }
+    let pick = cand[0];
+    const t = tk(m);
+    if (cand.length > 1 && t !== null) {
+      const dist = (g) => { const s = g.outcome.ms, e = Date.parse(g.outcome.end); const en = Number.isNaN(e) ? s : e; if (s === null) return Infinity; return t < s ? s - t : t > en ? t - en : 0; };
+      pick = cand.reduce((best, g) => (dist(g) < dist(best) ? g : best), cand[0]);
+    }
+    pick.milestones.push(m);
+  });
+  const all = [...groups, ...synth.values()];
+  all.forEach((g) => {
+    g.milestones.sort((a, b) => (tk(a) ?? Infinity) - (tk(b) ?? Infinity) || a.order - b.order);
+    if (g.outcome.synthetic && g.milestones.length) { const f = g.milestones[0]; g.outcome.ts = f.ts; g.outcome.ms = f.ms; g.outcome.sortMs = tk(f); g.outcome.precision = f.precision; }
+  });
+  all.sort((a, b) => ((a.outcome.sortMs ?? a.outcome.ms) ?? Infinity) - ((b.outcome.sortMs ?? b.outcome.ms) ?? Infinity));
+  if (unlinked.milestones.length) { unlinked.milestones.sort((a, b) => (tk(a) ?? Infinity) - (tk(b) ?? Infinity)); all.push(unlinked); }
+  all.forEach((g) => g.milestones.forEach((m) => { m.parentName = g.outcome ? g.outcome.name : ''; m.parentOrder = g.outcome && g.outcome.order ? g.outcome.order : ''; }));
   return all;
 }
 
-// Work out which objects each task (and the bot state) in the flow uses, by looking for each object's id inside that task.
-function addTaskBreakdown(groups, cfg) {
-  const seq = (cfg && Array.isArray(cfg.flowSequenceItemList)) ? cfg.flowSequenceItemList : [];
-  const containers = seq.filter((i) => i && (i.__type === 'Task' || i.__type === 'BotState'))
-    .map((i) => ({ label: i.name || '(unnamed task)', state: i.__type === 'BotState', json: JSON.stringify(i) }));
-  if (!containers.length) { groups.forEach((g) => { g.tasks = null; }); return; }
-  const byLabel = (x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: 'base' });
-  for (const g of groups) {
-    const placed = new Set(); const tasks = [];
-    for (const c of containers) {
-      const items = g.items.filter((d) => d.id && c.json.includes(d.id));
-      items.forEach((d) => placed.add(d));
-      if (items.length) tasks.push({ label: c.label, state: c.state, items });
-    }
-    tasks.sort(byLabel);
-    const rest = g.items.filter((d) => !placed.has(d));
-    if (rest.length) tasks.push({ label: 'Outside tasks', other: true, items: rest });
-    g.tasks = tasks.length ? tasks : null;
-  }
-}
-
-/* ---------- export ---------- */
-async function exportSelected() {
-  if (S.busy) return;
-  const flows = S.flows.filter((f) => S.selected.has(f.id));
-  if (!flows.length) return;
-  clearMsg();
-  S.busy = true; S.deps = new Map();
-  flows.forEach((f) => S.deps.set(f.id, { flow: f, loading: true }));
-  renderAll();
-  const failures = [];
-  for (let i = 0; i < flows.length; i++) {
-    const f = flows[i];
-    $('progress').innerHTML = `<span class="spinner"></span>Exporting ${i + 1} of ${flows.length}: ${esc(f.name)}`;
-    const entry = S.deps.get(f.id);
-    try {
-      const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
-      const header = `# Flow: ${f.name}\n# Type: ${f.type}\n# Division: ${(f.division && f.division.name) || ''}\n# Exported: ${new Date().toISOString()}\n# Source: GET /api/v2/flows/${f.id}/latestconfiguration (Architect configuration rendered as YAML)\n`;
-      download(`${safeName(f.name)}.${String(f.type || '').toLowerCase()}.yaml`, header + toYaml(cfg), 'application/x-yaml');
-      if (cfg && cfg.manifest) entry.groups = groupManifest(cfg.manifest, cfg);
-      else entry.error = 'The flow configuration has no manifest section, so its dependencies cannot be listed.';
-    } catch (e) {
-      failures.push(`${f.name}: ${e.message}`);
-      entry.error = 'Dependencies could not be read because the flow configuration could not be retrieved.';
-    }
-    entry.loading = false;
-    renderDeps();
-    if (i < flows.length - 1) await sleep(350);
-  }
-  S.busy = false;
-  $('progress').textContent = failures.length ? '' : `Exported ${flows.length} flow${flows.length === 1 ? '' : 's'}.`;
-  if (failures.length) showMsg('Some flows could not be exported:\n' + failures.join('\n') + (failures.some((x) => /403|permission|scope/i.test(x)) ? '\nCheck the user role and the OAuth client scopes (Architect).' : ''));
-  renderAll();
-}
-
-// Object selection helpers: every object is selected unless its key is in S.depOff.
-const itemKey = (flowId, label, d) => `${flowId}|${label}|${d.id || d.name}`;
-const itemOn = (flowId, label, d) => !S.depOff.has(itemKey(flowId, label, d));
-function selectedGroups(entry) {
-  return (entry.groups || [])
-    .map((g) => ({ label: g.label, items: g.items.filter((d) => itemOn(entry.flow.id, g.label, d)) }))
-    .filter((g) => g.items.length);
-}
-
-function downloadCsv() {
-  let n = 0;
-  for (const e of S.deps.values()) {
-    const groups = selectedGroups(e);
-    if (!groups.length) continue;
-    const rows = [['Flow', 'Flow type', 'Dependency type', 'Name', 'Id', 'Version']];
-    groups.forEach((g) => g.items.forEach((d) => rows.push([e.flow.name, e.flow.type, g.label, d.name, d.id || '', d.version || ''])));
-    const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    setTimeout(() => download(`${safeName(e.flow.name)}_dependencies.csv`, csv, 'text/csv'), n++ * 350);
-  }
-  if (!n) showMsg('No dependency objects are selected, so there is nothing to put in a CSV.', 'warn');
-}
-
-/* ---------- Terraform ---------- */
-const TF_PROVIDER_VERSION = '1.86.1';
-// Dependency group label -> genesyscloud Terraform resource type used in include_filter_resources.
-const TF_RESOURCES = {
-  'Milestones': 'genesyscloud_flow_milestone',
-  'Outcomes': 'genesyscloud_flow_outcome',
-  'Prompts': 'genesyscloud_architect_user_prompt',
-  'Data Actions': 'genesyscloud_integration_action',
-  'Data Tables': 'genesyscloud_architect_datatable',
-  'Queues': 'genesyscloud_routing_queue',
-  'Skills': 'genesyscloud_routing_skill',
-  'Wrap-up Codes': 'genesyscloud_routing_wrapupcode',
-  'Schedules': 'genesyscloud_architect_schedules',
-  'Schedule Groups': 'genesyscloud_architect_schedulegroups',
-  'Emergency Groups': 'genesyscloud_architect_emergencygroup',
-  'Grammars': 'genesyscloud_architect_grammar',
-  'Knowledge Bases': 'genesyscloud_knowledge_knowledgebase',
-  'Common Modules': 'genesyscloud_flow',
-  'Flows': 'genesyscloud_flow',
-  'Integrations': 'genesyscloud_integration',
-  'Groups': 'genesyscloud_group',
-  'Scripts': 'genesyscloud_script',
-};
-const regexEscape = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const hclString = (str) => str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$\{/g, () => '$${').replace(/%\{/g, () => '%%{');
-
-function buildTerraform(flow, groups) {
-  const prefix = 'flow_' + safeName(flow.name).replace(/[^A-Za-z0-9_]/g, '_').toLowerCase();
-  const awsRegion = ((REGIONS.find(([, d]) => d === S.domain) || [''])[0] || '').split(' ')[0];
-  // Merge groups that map to the same Terraform resource type (e.g. Common Modules + Flows).
-  const byRes = new Map(); const skipped = [];
-  for (const g of groups) {
-    const res = TF_RESOURCES[g.label];
-    if (!res) { skipped.push(`${g.label} (${g.items.length})`); continue; }
-    if (!byRes.has(res)) byRes.set(res, new Set());
-    g.items.forEach((d) => byRes.get(res).add(d.name));
-  }
-  const locals = []; const filters = [];
-  for (const [res, names] of byRes) {
-    const local = res.replace(/^genesyscloud_/, '') + '_name_regex';
-    const pattern = '^(' + [...names].sort((x, y) => x.localeCompare(y)).map(regexEscape).join('|') + ')$';
-    locals.push(`  ${prefix}_${local} = "${hclString(pattern)}"`);
-    filters.push(`    "${res}::\${local.${prefix}_${local}}"`);
-  }
-  if (!filters.length) return null;
-  const lines = [
-    `# Terraform export for Genesys Cloud flow: ${flow.name}`,
-    `# Flow type: ${flow.type}   Division: ${(flow.division && flow.division.name) || ''}`,
-    `# Generated: ${new Date().toISOString()}`,
-    ...(skipped.length ? [`# Not included (no Terraform export resource available): ${skipped.join(', ')}`] : []),
-    '',
-    'terraform {',
-    '  required_providers {',
-    '    genesyscloud = {',
-    '      source  = "MyPureCloud/genesyscloud"',
-    `      version = "${TF_PROVIDER_VERSION}"`,
-    '    }',
-    '  }',
-    '}',
-    '',
-    'variable "oauthClientId" { type = string }',
-    'variable "oauthClientSecret" { type = string }',
-    `variable "oauthAWSRegion" {\n  type    = string${awsRegion ? `\n  default = "${awsRegion}"` : ''}\n}`,
-    '',
-    'provider "genesyscloud" {',
-    '  oauthclient_id     = var.oauthClientId',
-    '  oauthclient_secret = var.oauthClientSecret',
-    '  aws_region         = var.oauthAWSRegion',
-    '  sdk_debug          = true',
-    '}',
-    '',
-    'locals {',
-    locals.join('\n\n'),
-    '}',
-    '',
-    `resource "genesyscloud_tf_export" "${prefix}_dependencies" {`,
-    `  directory = "./export/${hclString(safeName(flow.name))}"`,
-    '',
-    '  export_format      = "hcl"',
-    '  include_state_file = false',
-    '',
-    '  include_filter_resources = [',
-    filters.join(',\n'),
-    '  ]',
-    '',
-    '  enable_dependency_resolution = false',
-    '  split_files_by_resource      = false',
-    '  log_permission_errors        = false',
-    '}',
-    '',
-  ];
-  return { text: lines.join('\n'), skipped };
-}
-
-async function exportTerraform() {
-  if (S.busy) return;
-  const flows = S.flows.filter((f) => S.selected.has(f.id));
-  if (!flows.length) return;
-  clearMsg();
-  S.busy = true; renderExport();
-  const notes = []; let made = 0;
-  for (let i = 0; i < flows.length; i++) {
-    const f = flows[i];
-    $('progress').innerHTML = `<span class="spinner"></span>Building Terraform ${i + 1} of ${flows.length}: ${esc(f.name)}`;
-    let entry = S.deps.get(f.id);
-    if (!entry || !entry.groups) {   // dependencies not loaded yet: read them from the flow manifest (all selected)
-      entry = { flow: f, loading: true }; S.deps.set(f.id, entry); renderDeps();
-      try {
-        const cfg = await api(`/api/v2/flows/${encodeURIComponent(f.id)}/latestconfiguration`);
-        if (!cfg || !cfg.manifest) throw new Error('the flow configuration has no manifest section');
-        entry.groups = groupManifest(cfg.manifest, cfg);
-      } catch (e) { entry.error = 'Dependencies could not be read: ' + e.message; }
-      entry.loading = false; renderDeps();
-    }
-    if (!entry.groups) { notes.push(`${f.name}: ${entry.error || 'no dependency data'}`); continue; }
-    const out = buildTerraform(f, selectedGroups(entry));
-    if (!out) { notes.push(`${f.name}: no selected objects can be exported with Terraform, so no file was created.`); continue; }
-    if (out.skipped.length) notes.push(`${f.name}: left out ${out.skipped.join(', ')} (no Terraform export resource).`);
-    download(`${safeName(f.name)}.tf`, out.text, 'text/plain');
-    made++;
-    if (i < flows.length - 1) await sleep(350);
-  }
-  S.busy = false;
-  $('progress').textContent = made ? `Created ${made} Terraform file${made === 1 ? '' : 's'}.` : '';
-  if (notes.length) showMsg(notes.join('\n'), made ? 'info' : 'warn');
-  renderAll();
-}
-
-/* ---------- object-type icons (ring badge + orange glyph + cyan accent dot) ---------- */
-const ICONS = {
-  milestone: '<path d="M6 21V4"/><path d="M6 5h11l-2.5 3.5L17 12H6"/><circle class="ac" cx="6" cy="21" r="1.7"/>',
-  outcome: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.6"/><circle class="ac" cx="12" cy="12" r="1.6"/>',
-  action: '<path d="M13 2 5 13.5h6L10 22l8-11.5h-6z"/><circle class="ac" cx="19" cy="5" r="1.7"/>',
-  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/><circle class="ac" cx="15" cy="12.5" r="1.4"/>',
-  queue: '<path d="M4 7h10M4 12h10M4 17h6"/><path d="m17 8 4 4-4 4"/><circle class="ac" cx="20" cy="5" r="1.6"/>',
-  skill: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/><circle class="ac" cx="20.5" cy="4" r="1.5"/>',
-  prompt: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/><circle class="ac" cx="12" cy="12" r="0"/>',
-  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle class="ac" cx="7.5" cy="8.5" r="1.7"/>',
-  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle class="ac" cx="12" cy="15.5" r="1.7"/>',
-  calendars: '<rect x="3" y="7" width="14" height="14" rx="2"/><path d="M3 12h14M7 5v4M13 5v4M20 8v10a3 3 0 0 1-3 3"/><circle class="ac" cx="10" cy="16.5" r="1.5"/>',
-  alert: '<path d="M12 3 22 20H2z"/><path d="M12 10v4.5"/><circle class="ac" cx="12" cy="17.3" r="1.2"/>',
-  book: '<path d="M3 5h7a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H3zM21 5h-7a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h7z"/><circle class="ac" cx="12" cy="3" r="1.4"/>',
-  bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/><circle class="ac" cx="12" cy="9" r="1.5"/>',
-  flow: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M9 6h4a2 2 0 0 1 2 2v7"/><circle class="ac" cx="18" cy="6" r="1.7"/>',
-  plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/><circle class="ac" cx="12" cy="11" r="1.4"/>',
-  people: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M17 5.5a2.6 2.6 0 0 1 0 5M18 14a5 5 0 0 1 3.5 5"/><circle class="ac" cx="9" cy="8" r="1.1"/>',
-  script: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h6M9.5 13 7.5 15l2 2M14.5 13l2 2-2 2"/>',
-  chat: '<path d="M4 5h16v11H9l-5 4z"/><circle class="ac" cx="9" cy="10.5" r="1.3"/><circle class="ac" cx="13" cy="10.5" r="1.3"/>',
-  building: '<path d="M4 21V5l8-2v18M12 9h8v12M3 21h18M7.5 9h1M7.5 13h1M7.5 17h1"/><circle class="ac" cx="16" cy="13" r="1.4"/>',
-  cube: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
-};
-const ICON_FOR = {
-  'Milestones': 'milestone', 'Outcomes': 'outcome', 'Data Actions': 'action', 'Data Tables': 'table', 'Queues': 'queue',
-  'Skills': 'skill', 'Prompts': 'prompt', 'Wrap-up Codes': 'tag', 'Utilization Labels': 'tag', 'Schedules': 'calendar',
-  'Schedule Groups': 'calendars', 'Emergency Groups': 'alert', 'Grammars': 'book', 'Knowledge Bases': 'bulb',
-  'Common Modules': 'flow', 'Flows': 'flow', 'Integrations': 'plug', 'Groups': 'people', 'Scripts': 'script',
-  'Responses': 'chat', 'Divisions': 'building',
-};
-const iconFor = (label) => `<span class="oi" aria-hidden="true"><svg viewBox="0 0 24 24">${ICONS[ICON_FOR[label] || 'cube']}</svg></span>`;
-
 /* ---------- rendering ---------- */
+const ICON = {
+  Milestone: '<svg viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 4h11l-2.5 4L17 12H6"/><circle class="ac" cx="6" cy="21" r="1.4"/></svg>',
+  Outcome: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8.5 12.5l2.4 2.4 4.6-5"/><circle class="ac" cx="12" cy="12" r="1.2"/></svg>',
+};
+function fmtTime(ts) {
+  const n = Date.parse(ts); if (Number.isNaN(n)) return { main: ts || '—', sub: '' };
+  const d = new Date(n), p = (x, w = 2) => String(x).padStart(w, '0');
+  return {
+    main: `${p(d.getDate())} ${d.toLocaleString(undefined, { month: 'short' })} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`,
+    sub: d.toISOString(),
+  };
+}
+function fmtDur(ms) {
+  if (ms === null || ms === undefined) return '';
+  if (ms < 1000) return `${ms} ms`;
+  const s = ms / 1000; return s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+}
+function valueBadge(e) {
+  if (e.kind !== 'Outcome') return '<span class="fnote">—</span>';
+  if (e.synthetic) return '<span class="vab none" title="Milestones were recorded for this outcome but no outcome result was set">No result recorded</span>';
+  const v = String(e.value || '').toUpperCase();
+  const cls = v === 'SUCCESS' ? 'succ' : v === 'FAILURE' ? 'fail' : 'off';
+  return `<span class="vab ${cls}">${esc(e.value || 'Unknown')}</span>${e.durationMs !== null ? `<div class="fnote">${esc(fmtDur(e.durationMs))}</div>` : ''}`;
+}
+
 function renderAuth() {
   const on = !!S.token;
   $('authBtn').textContent = on ? 'Sign out / change environment' : 'Sign in to Genesys Cloud';
@@ -888,116 +992,385 @@ function renderAuth() {
   $('orgBadge').hidden = !on;
   $('orgName').textContent = S.org || '';
   $('workspace').hidden = !on;
-  $('typesPanel').hidden = !on;
   $('welcome').hidden = on;
 }
 
-function renderTypes() {
-  const ul = $('typeList'); ul.innerHTML = '';
-  const list = S.typesOpen || !S.flowType ? FLOW_TYPES : FLOW_TYPES.filter(([, v]) => v === S.flowType);
-  for (const [label, value] of list) {
-    const li = document.createElement('li'); const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label; b.dataset.type = value;
-    if (value === S.flowType) b.setAttribute('aria-current', 'true');
-    li.appendChild(b); ul.appendChild(li);
+function timeParts(e) {
+  if (e.precision === 'exact' || !e.ts) return fmtTime(e.ts);
+  const d = new Date(Date.parse(e.ts)), p = (x) => String(x).padStart(2, '0');
+  return { main: `~${p(d.getDate())} ${d.toLocaleString(undefined, { month: 'short' })} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`, sub: 'within this minute' };
+}
+function flowCell(e) {
+  return e.flowName ? `${esc(e.flowName)}${e.flowVersion ? ` <span class="fnote">v${esc(e.flowVersion)}</span>` : ''}${e.flowType ? `<div class="fnote">${esc(e.flowType)}</div>` : ''}` : '<span class="fnote">—</span>';
+}
+function nameCell(e) {
+  return e.noId ? esc(e.name) : e.resolved ? esc(e.name) : `${esc(e.name || '(unresolved)')} <span class="unres" title="${esc(e.resolveError)}">· not resolved</span>`;
+}
+// One table row. opts: { label, child, toggle:{key,open,count} }
+function rowHtml(e, o) {
+  const t = timeParts(e);
+  let lead = '';
+  if (o.toggle) {
+    const tg = o.toggle;
+    lead = tg.count
+      ? `<button class="twisty" type="button" data-tg="${esc(tg.key)}" aria-expanded="${tg.open}" aria-label="${tg.open ? 'Collapse' : 'Expand'} ${tg.count} milestone${tg.count === 1 ? '' : 's'}">${tg.open ? '▼' : '▶'}</button>`
+      : '<span class="tw-sp"></span>';
   }
-  const cur = FLOW_TYPES.find(([, v]) => v === S.flowType);
-  $('flowTitle').textContent = cur ? cur[0] : 'Flows';
-  $('typesHead').setAttribute('aria-expanded', String(S.typesOpen));
-  $('typesChev').textContent = S.typesOpen ? '▼' : '▶';
+  const outc = !o.child && !o.grouped && e.kind === 'Milestone' && e.outcomeId ? `<small>outcome: ${esc(e.outcomeName || e.outcomeId)}</small>` : '';
+  const cnt = o.toggle && o.toggle.count ? `<span class="tkn ms">${o.toggle.count} milestone${o.toggle.count === 1 ? '' : 's'}</span>` : '';
+  const idLine = e.id ? `<small>${esc(e.id)}</small>` : '';
+  return `<tr class="${o.child ? 'child' : o.toggle ? 'grp' + (o.toggle.open ? ' open' : '') : ''}">
+      <td class="ord">${esc(o.label)}</td>
+      <td class="time">${esc(t.main)}<small>${esc(t.sub)}</small></td>
+      <td><span class="kind">${lead}<span class="oi">${ICON[e.kind]}</span>${esc(e.kind)}</span></td>
+      <td class="nm">${nameCell(e)}${cnt}${idLine}${outc}</td>
+      <td>${valueBadge(e)}</td>
+      <td>${flowCell(e)}</td>
+      <td>${esc(e.participant || '—')}</td>
+    </tr>`;
 }
 
-function renderFlows() {
-  const empty = $('flowsEmpty'), body = $('flowsBody');
-  const showEmpty = (html) => { empty.hidden = false; empty.innerHTML = html; body.hidden = true; };
-  if (!S.flowType) return showEmpty('Select a flow type to list its flows.');
-  if (S.loading) return showEmpty('<span class="spinner"></span>Loading flows…');
-  if (S.loadError) return showEmpty('Flows could not be loaded.');
-  if (!S.flows.length) return showEmpty('No flows of this type were found in this org.');
-  empty.hidden = true; body.hidden = false;
-  $('thVa').hidden = !showVa();
-  const vis = visibleFlows();
-  const rows = vis.map((f) => `
-    <tr class="${S.selected.has(f.id) ? 'sel' : ''}">
-      <td class="chk"><input type="checkbox" data-id="${esc(f.id)}" ${S.selected.has(f.id) ? 'checked' : ''} aria-label="Select ${esc(f.name)}"></td>
-      <td class="name">${esc(f.name)}</td>
-      <td class="desc">${esc(f.description || '')}</td>
-      <td>${esc((f.division && f.division.name) || '')}</td>
-      ${showVa() ? `<td class="vacol" data-va="${esc(f.id)}">${vaCell(f.id)}</td>` : ''}
-    </tr>`).join('');
-  $('flowRows').innerHTML = rows || `<tr><td colspan="5" class="empty">No flows match the filter.</td></tr>`;
-  $('flowCount').textContent = `${vis.length} of ${S.flows.length} flows, ${S.selected.size} selected`;
-  const selVis = vis.filter((f) => S.selected.has(f.id)).length;
-  const all = $('selAll'); all.checked = vis.length > 0 && selVis === vis.length; all.indeterminate = selVis > 0 && selVis < vis.length;
-}
+function renderResults() {
+  const r = S.result, busy = S.busy;
+  $('goBtn').disabled = busy; $('goBtn').textContent = busy ? 'Working…' : 'Retrieve';
+  $('convId').disabled = busy; $('lookback').disabled = busy;
+  $('csvBtn').disabled = $('jsonBtn').disabled = !(r && r.events.length);
+  $('sumbar').hidden = !(r && r.events.length);
 
-const FOLDER_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-function renderDeps() {
-  const box = $('deps');
-  if (!S.deps.size) { box.hidden = true; return; }
-  box.hidden = false;
-  const parts = [];
-  let total = 0, off = 0;
-  for (const e of S.deps.values()) {
-    let inner;
-    if (e.loading) inner = '<div class="none"><span class="spinner"></span>Waiting…</div>';
-    else if (e.error) inner = `<div class="err">${esc(e.error)}</div>`;
-    else if (!e.groups.some((g) => g.items.length)) inner = '<div class="none">This flow has no exportable dependent objects (milestones, outcomes, prompts, data actions, data tables and so on).</div>';
-    else {
-      inner = e.groups.map((g) => {
-        const key = e.flow.id + '|' + g.label;
-        const has = g.items.length > 0;
-        const open = has && S.depOpen.has(key);
-        const sel = g.items.filter((d) => itemOn(e.flow.id, g.label, d)).length;
-        total += g.items.length; off += g.items.length - sel;
-        const itemLi = (d) => `<li class="${d.deleted ? 'deleted' : ''}"><label><input type="checkbox" data-item="${esc(itemKey(e.flow.id, g.label, d))}" ${itemOn(e.flow.id, g.label, d) ? 'checked' : ''}> ${esc(d.name || d.id)}</label></li>`;
-        let names = '';
-        if (open) {
-          const canTask = !!(g.tasks && g.tasks.length);
-          const byTask = canTask && S.depByTask.has(key);
-          const optRow = canTask ? `<li class="tkopt" title="An object used by more than one task is listed under each of them"><span class="tki">${FOLDER_SVG}</span><span class="tklbl">Break down by task</span><button type="button" class="sw" role="switch" aria-checked="${byTask}" data-bytask="${esc(key)}" aria-label="Break down ${esc(g.label)} by task"></button></li>` : '';
-          let body;
-          if (byTask) {
-            body = g.tasks.map((t) => {
-              const tkey = key + '|' + t.label;
-              const topen = S.taskOpen.has(tkey);
-              const tsel = t.items.filter((d) => itemOn(e.flow.id, g.label, d)).length;
-              const inner = topen ? `<ul class="tkitems">${t.items.map(itemLi).join('')}</ul>` : '';
-              return `<li class="task"><div class="tkrow">
-                <button type="button" class="twisty small" data-ttoggle="${esc(tkey)}" aria-expanded="${topen}" aria-label="${topen ? 'Collapse' : 'Expand'} task ${esc(t.label)}">${topen ? '▼' : '▶'}</button>
-                <label><input type="checkbox" data-task="${esc(tkey)}" ${tsel === t.items.length ? 'checked' : ''} data-partial="${tsel > 0 && tsel < t.items.length}"><span class="tki">${FOLDER_SVG}</span><span class="tkname">${esc(t.label)}${t.state ? ' (bot state)' : ''}</span></label>
-                <span class="tkn" title="${t.items.length} ${esc(g.label.toLowerCase())} in this task">${t.items.length}</span></div>${inner}</li>`;
-            }).join('');
-          } else body = g.items.map(itemLi).join('');
-          names = `<ul>${optRow}${body}</ul>`;
-        }
-        return `<div class="dtype ${has ? '' : 'zero'}">
-          <div class="dtype-head">
-            <button type="button" class="twisty" data-toggle="${esc(key)}" aria-expanded="${open}" ${has ? '' : 'disabled'} aria-label="${open ? 'Collapse' : 'Expand'} ${esc(g.label)}">${open ? '▼' : '▶'}</button>
-            <label><input type="checkbox" data-dtype="${esc(key)}" ${sel === g.items.length && has ? 'checked' : ''} ${has ? '' : 'disabled'} data-partial="${sel > 0 && sel < g.items.length}"> ${iconFor(g.label)}<span>${esc(g.label)}</span></label>
-            <span class="n">${has && sel < g.items.length ? sel + ' of ' : ''}${g.items.length}</span>
-          </div>${names}</div>`;
-      }).join('');
+  if (!r) {
+    $('notes').hidden = true;
+    $('meta').textContent = busy ? 'Retrieving…' : 'Enter an interaction (conversation) ID and choose Retrieve.';
+    $('empty').textContent = busy ? 'Working…' : 'No results yet.'; $('empty').hidden = false; $('body').hidden = true; return;
+  }
+  $('notes').hidden = !(r.notes && r.notes.length); $('notes').textContent = (r.notes || []).join('\n\n');
+  const ev = r.events;
+  const nm = ev.filter((e) => e.kind === 'Milestone').length, no = ev.length - nm;
+  document.querySelectorAll('#sumbar .chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.v === S.view)));
+  $('grpBtns').hidden = S.view !== 'group';
+  $('counts').textContent = `${no} outcome${no === 1 ? '' : 's'} · ${nm} milestone${nm === 1 ? '' : 's'}`;
+  $('meta').innerHTML = `Interaction <strong>${esc(r.conversationId)}</strong>${r.conversationStart ? ` · started ${esc(fmtTime(r.conversationStart).main)}` : ''} · shown in order of encounter${r.source ? ` · source: ${esc(r.source)}` : ''}`;
+
+  if (!ev.length) { $('empty').textContent = 'This interaction has no outcomes or milestones recorded.'; $('empty').hidden = false; $('body').hidden = true; return; }
+  $('empty').hidden = true; $('body').hidden = false;
+
+  if (S.view === 'flat') { $('rows').innerHTML = ev.map((e) => rowHtml(e, { label: e.order })).join(''); return; }
+
+  let html = '', n = 0;
+  (r.groups || []).forEach((g) => {
+    const open = S.open.has(g.key), count = g.milestones.length;
+    if (g.outcome) {
+      n++;
+      html += rowHtml(g.outcome, { label: n, toggle: { key: g.key, open, count } });
+    } else {
+      html += `<tr class="grp${open ? ' open' : ''}"><td class="ord">—</td><td></td>
+        <td><span class="kind">${count ? `<button class="twisty" type="button" data-tg="${g.key}" aria-expanded="${open}">${open ? '▼' : '▶'}</button>` : ''}</span></td>
+        <td class="nm">Milestones not linked to an outcome<span class="tkn ms">${count} milestone${count === 1 ? '' : 's'}</span><small>No outcome ID was available for these</small></td><td></td><td></td><td></td></tr>`;
     }
-    parts.push(`<div class="flowdeps"><h3>${esc(e.flow.name)}</h3>${inner}</div>`);
+    if (open) g.milestones.forEach((m, j) => { html += rowHtml(m, { label: g.outcome ? `${n}.${j + 1}` : `${j + 1}`, child: true, grouped: true }); });
+  });
+  $('rows').innerHTML = html;
+}
+function renderAll() { renderAuth(); renderMode(); renderResults(); renderBulk(); }
+
+/* ---------- downloads ---------- */
+function download(filename, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const csvCell = (v) => { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+function downloadCsv() {
+  const r = S.result; if (!r) return;
+  const head = ['Order', 'Timestamp (UTC)', 'Type', 'Name', 'Architect ID', 'Outcome value', 'Outcome end (UTC)', 'Outcome duration (ms)', 'Flow', 'Flow type', 'Flow version', 'Participant purpose', 'Session ID', 'Conversation ID', 'Milestone outcome ID', 'Parent outcome', 'Parent outcome #', 'Time precision'];
+  const rows = r.events.map((e) => [e.order, e.ts, e.kind, e.name, e.id, e.value, e.end, e.durationMs ?? '', e.flowName, e.flowType, e.flowVersion, e.participant, e.sessionId, r.conversationId, e.outcomeId || '', e.parentName || '', e.parentOrder || '', e.precision === 'exact' ? 'exact' : 'minute (order within minute not recoverable)']);
+  const text = '\ufeff' + [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+  download(`interaction_${r.conversationId}_outcomes_milestones.csv`, text, 'text/csv;charset=utf-8');
+}
+function jsonEvent(e) {
+  return {
+    order: e.order, timestamp: e.ts || undefined, type: e.kind, name: e.name, nameResolvedFromArchitect: e.resolved, id: e.id,
+    ...(e.kind === 'Outcome' ? (e.synthetic ? { outcomeValue: null, note: 'Milestones were recorded for this outcome but no outcome result was set' } : { outcomeValue: e.value, outcomeEnd: e.end, outcomeDurationMs: e.durationMs, outcomeInstanceId: e.instanceId }) : {}),
+    ...(e.kind === 'Milestone' ? { milestoneOutcomeId: e.outcomeId || undefined, parentOutcome: e.parentName || undefined, timePrecision: e.precision === 'exact' ? 'exact' : 'minute' } : {}),
+    description: e.description || undefined,
+    flow: { id: e.flowId, name: e.flowName, type: e.flowType, version: e.flowVersion },
+    participantPurpose: e.participant, sessionId: e.sessionId,
+  };
+}
+function downloadJson() {
+  const r = S.result; if (!r) return;
+  const out = {
+    conversationId: r.conversationId, organization: S.org, region: S.domain, retrievedAt: new Date().toISOString(), source: r.source, notes: r.notes,
+    conversationStart: r.conversationStart, conversationEnd: r.conversationEnd,
+    outcomes: (r.groups || []).map((g) => ({
+      ...(g.outcome ? jsonEvent(g.outcome) : { name: 'Milestones not linked to an outcome' }),
+      milestones: g.milestones.map(jsonEvent),
+    })),
+    events: r.events.map(jsonEvent),
+  };
+  download(`interaction_${r.conversationId}_outcomes_milestones.json`, JSON.stringify(out, null, 2), 'application/json');
+}
+
+/* ======================= SPREADSHEET (BULK) MODE ======================= */
+const GUID_ANY = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const norm = (s) => String(s ?? '').trim().toLowerCase();
+
+function parseCsvText(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ',' || c === '\t' || c === ';') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
   }
-  $('depBody').innerHTML = parts.join('');
-  $('depBody').querySelectorAll('input[data-partial=true]').forEach((c) => { c.indeterminate = true; });
-  $('depAll').checked = total > 0 && off === 0; $('depAll').indeterminate = off > 0 && off < total; $('depAll').disabled = total === 0;
-  $('csvBtn').disabled = total === 0 || off === total;
-  const anyClosed = [...S.deps.values()].some((e) => (e.groups || []).some((g) => g.items.length && !S.depOpen.has(e.flow.id + '|' + g.label)));
-  $('expandBtn').textContent = anyClosed ? 'Expand all' : 'Collapse all';
-  $('expandBtn').disabled = total === 0;
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
 }
 
-function renderExport() {
-  $('exportBtn').disabled = S.busy || S.selected.size === 0;
-  $('tfBtn').disabled = S.busy || S.selected.size === 0;
-  $('tfBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to Terraform` : 'Export to Terraform';
-  $('exportBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to YAML` : 'Export to YAML';
+// Reads the first sheet that contains interaction IDs. Returns { ids, templateCols, sheetName }.
+async function readSpreadsheet(file) {
+  const isText = /\.(csv|txt)$/i.test(file.name);
+  let sheets = [];
+  if (window.XLSX) {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    sheets = wb.SheetNames.map((n) => ({ name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }) }));
+  } else if (isText) {
+    sheets = [{ name: file.name, rows: parseCsvText(await file.text()) }];
+  } else {
+    throw new Error('The spreadsheet reader could not be loaded (cdnjs.cloudflare.com may be blocked on this network). Save the sheet as CSV and upload that instead.');
+  }
+  for (const sh of sheets) {
+    const rows = sh.rows; if (!rows.length) continue;
+    // locate the heading row/column ("Interaction ID" / "Conversation ID"), else the column with most GUIDs
+    let hRow = -1, idCol = -1;
+    for (let r = 0; r < Math.min(rows.length, 10) && idCol < 0; r++) {
+      const c = (rows[r] || []).findIndex((v) => /^(interaction|conversation)[\s_-]*(id)?$/i.test(String(v).trim()));
+      if (c >= 0) { hRow = r; idCol = c; }
+    }
+    if (idCol < 0) {
+      const counts = new Map();
+      rows.forEach((row) => (row || []).forEach((v, c) => { if (GUID_ANY.test(String(v))) counts.set(c, (counts.get(c) || 0) + 1); }));
+      if (!counts.size) continue;
+      idCol = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
+    const seen = new Set(), ids = [];
+    rows.slice(hRow + 1).forEach((row) => {
+      const m = GUID_ANY.exec(String((row || [])[idCol] ?? '')); if (!m) return;
+      const id = m[0].toLowerCase(); if (!seen.has(id)) { seen.add(id); ids.push(id); }
+    });
+    if (!ids.length) continue;
+    const templateCols = hRow >= 0 ? (rows[hRow] || []).map((v, c) => ({ v: String(v).trim(), c })).filter((x) => x.v && x.c !== idCol).map((x) => x.v) : [];
+    return { ids, templateCols, sheetName: sh.name };
+  }
+  throw new Error('No interaction IDs (GUIDs) were found in that file.');
 }
 
-function renderAll() { renderAuth(); renderTypes(); renderFlows(); renderDeps(); renderExport(); }
+async function loadFile(file) {
+  clearMsg();
+  if (!file) return;
+  try {
+    const r = await readSpreadsheet(file);
+    const B = S.bulk;
+    B.ids = r.ids; B.templateCols = r.templateCols; B.fileName = file.name; B.sheetName = r.sheetName;
+    B.results = new Map(); B.columns = []; B.rows = []; B.done = 0; B.notes = [];
+    $('blog').innerHTML = ''; $('barText').textContent = ''; $('bar').hidden = true;
+    $('fileInfo').innerHTML = `<strong>${esc(file.name)}</strong> · sheet "${esc(r.sheetName)}": ${r.ids.length} unique interaction ID${r.ids.length === 1 ? '' : 's'}${r.templateCols.length ? `, ${r.templateCols.length} column heading${r.templateCols.length === 1 ? '' : 's'} to fill` : ''}.`;
+  } catch (e) {
+    S.bulk.ids = []; $('fileInfo').textContent = '';
+    showMsg(e.message);
+  }
+  renderAll();
+}
+
+function blogLine(text, cls) { const li = document.createElement('li'); if (cls) li.className = cls; li.innerHTML = text; $('blog').appendChild(li); return li; }
+
+async function pool(items, n, fn) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) { const it = items[next++]; await fn(it); }
+  }));
+}
+
+function bulkProgress() {
+  const B = S.bulk, n = B.ids.length, d = B.results.size;
+  $('bar').hidden = !(B.running || d); $('barFill').style.width = n ? Math.round((d / n) * 100) + '%' : '0%';
+  $('barText').textContent = n && (B.running || d) ? `${d} of ${n} interaction${n === 1 ? '' : 's'} processed` : '';
+}
+
+async function bulkRun() {
+  clearMsg();
+  const B = S.bulk;
+  if (S.busy || !B.ids.length) return;
+  const seq = ++S.runSeq;
+  S.busy = true; B.running = true; B.results = new Map(); B.columns = []; B.rows = []; B.notes = [];
+  $('blog').innerHTML = '';
+  renderAll(); bulkProgress();
+  let fatal = null;
+
+  const quietUi = (warnings) => ({ alwaysAggregate: false, line: () => ({ html() {}, text() {} }), warn: (m) => warnings.push(m.split('\n')[0]) });
+  const finish = async (id, found, source) => {
+    const warnings = [];
+    const a = await analyse(found, seq, quietUi(warnings));
+    if (!a || seq !== S.runSeq) return;
+    B.results.set(id, {
+      id, status: a.events.length ? 'ok' : 'empty', source, notes: a.notes, groups: a.groups, events: a.events, warnings,
+      conversationId: id, conversationStart: found.conversationStart || '', conversationEnd: found.conversationEnd || '', interval: '',
+    });
+    bulkProgress();
+  };
+
+  try {
+    // pass 1: direct lookup by ID (fast, near real time)
+    const l1 = blogLine('<span class="spinner"></span>Looking up each interaction directly…');
+    const missing = [];
+    await pool(B.ids, 3, async (id) => {
+      if (fatal || seq !== S.runSeq) return;
+      try {
+        const found = await fetchById(id);
+        if (seq !== S.runSeq) return;
+        if (found) await finish(id, found, 'Analytics conversation details (by ID)'); else missing.push(id);
+      } catch (e) {
+        if (e.status === 403 || e.status === 401) { fatal = e; return; }
+        B.results.set(id, { id, status: 'error', error: e.message, events: [], groups: [], notes: [], warnings: [] }); bulkProgress();
+      }
+    });
+    if (seq !== S.runSeq) return;
+    if (fatal) throw fatal;
+    l1.className = 'ok'; l1.textContent = `Direct lookup: ${B.results.size} found, ${missing.length} not available`;
+
+    // pass 2: async job for the rest, one job per 31-day window and chunk of IDs
+    let left = [...missing];
+    if (left.length) {
+      const lookbackMs = parseInt($('lookback2').value, 10) * DAY;
+      const now = Date.now(), floor = now - lookbackMs;
+      let end = now;
+      while (left.length && end > floor) {
+        const start = Math.max(end - 31 * DAY, floor);
+        const label = `${new Date(start).toISOString().slice(0, 10)} → ${new Date(end).toISOString().slice(0, 10)}`;
+        const todo = [...left];
+        for (let i = 0; i < todo.length && seq === S.runSeq; i += 50) {
+          const chunk = todo.slice(i, i + 50);
+          const li = blogLine(`<span class="spinner"></span>Async job ${label} for ${chunk.length} interaction${chunk.length === 1 ? '' : 's'}…`);
+          try {
+            const r = await runJobIds(chunk, start, end, seq);
+            if (seq !== S.runSeq) return;
+            const byId = new Map(r.convs.map((c) => [c.conversationId, c]));
+            const hits = chunk.filter((id) => byId.has(id));
+            await pool(hits, 3, (id) => finish(id, byId.get(id), 'Analytics conversation details job (async)'));
+            li.className = hits.length ? 'ok' : ''; li.textContent = `${label}: found ${hits.length} of ${chunk.length}`;
+            left = left.filter((id) => !B.results.has(id));
+          } catch (e) { li.className = 'bad'; li.textContent = `${label}: ${e.message}`; B.notes.push(`Async job for ${label} failed: ${e.message}`); }
+        }
+        end = start;
+      }
+    }
+    if (seq !== S.runSeq) return;
+    left.filter((id) => !B.results.has(id)).forEach((id) => B.results.set(id, { id, status: 'notfound', events: [], groups: [], notes: [], warnings: [] }));
+    const n = [...B.results.values()];
+    const warned = n.filter((r) => r.warnings && r.warnings.length);
+    if (warned.length) B.notes.push(`${warned.length} interaction${warned.length === 1 ? '' : 's'} had events whose Architect name could not be resolved (first message: ${warned[0].warnings[0]}). The analytics label or ID is used for those.`);
+    if (n.some((r) => r.notes && r.notes.length)) B.notes.push('Milestones are rebuilt by joining per-minute flow aggregates with the milestone metrics (Genesys analytics does not store milestone IDs in the conversation record). Where several different milestones occurred in the same minute their order within that minute is not recoverable, but they are still counted correctly.');
+    blogLine(`Done: ${n.filter((r) => r.status === 'ok').length} with results, ${n.filter((r) => r.status === 'empty').length} with no outcomes/milestones, ${n.filter((r) => r.status === 'notfound').length} not found, ${n.filter((r) => r.status === 'error').length} errors`, 'ok');
+  } catch (e) {
+    if (seq === S.runSeq) showMsg('Spreadsheet run stopped: ' + e.message + (e.status === 403 ? '\nThe signed-in user and OAuth client need permission to read analytics conversation details.' : ''));
+  } finally {
+    if (seq === S.runSeq) { S.busy = false; B.running = false; buildSummary(); renderAll(); bulkProgress(); }
+  }
+}
+
+function bulkStop() {
+  const B = S.bulk; S.runSeq++; S.busy = false; B.running = false;
+  B.notes.push('Stopped before all interactions were processed; only those completed so far are shown.');
+  buildSummary(); renderAll(); bulkProgress();
+}
+
+// Summary matrix: one row per interaction, the sheet's own headings first, then anything else that was found.
+function buildSummary() {
+  const B = S.bulk; const cols = []; const byKey = new Map();
+  const addCol = (name, kind, template, key = norm(name)) => { const c = { name, kind, template: !!template, key }; cols.push(c); byKey.set(kind + ':' + key, c); return c; };
+  B.templateCols.forEach((h) => { if (!byKey.has('any:' + norm(h))) addCol(h, 'any', true); });
+  const colFor = (e) => {
+    const nm = e.name || e.id || '(unnamed)', k = norm(nm);
+    return byKey.get('any:' + k) || byKey.get(e.kind + ':' + k) || addCol(e.kind === 'Milestone' ? `${nm} (milestone)` : nm, e.kind, false, k);
+  };
+  const results = B.ids.map((id) => B.results.get(id)).filter(Boolean);
+  results.forEach((r) => r.events.forEach((e) => colFor(e)));
+  // outcomes first, then milestones, among the columns not taken from the sheet
+  const extra = cols.filter((c) => !c.template).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'Outcome' ? -1 : 1));
+  B.columns = [...cols.filter((c) => c.template), ...extra];
+  B.rows = B.ids.map((id) => {
+    const r = B.results.get(id);
+    const cells = new Map();
+    if (r) r.events.forEach((e) => {
+      const c = colFor(e); const cur = cells.get(c) || { outcomes: [], hits: 0 };
+      if (e.kind === 'Outcome') cur.outcomes.push(e.value || 'UNKNOWN'); else cur.hits++;
+      cells.set(c, cur);
+    });
+    const values = B.columns.map((c) => {
+      const x = cells.get(c); if (!x) return '';
+      const parts = []; if (x.outcomes.length) parts.push(x.outcomes.join(' | ')); if (x.hits) parts.push(String(x.hits));
+      return parts.join(' | ');
+    });
+    const status = !r ? 'Not processed' : r.status === 'ok' ? 'OK' : r.status === 'empty' ? 'Found, no outcomes or milestones recorded' : r.status === 'notfound' ? 'Not found' : 'Error: ' + (r.error || '');
+    return { id, values, status, cls: !r ? 'warn' : r.status === 'ok' ? 'good' : r.status === 'empty' ? 'warn' : 'bad', start: r ? r.conversationStart : '' };
+  });
+}
+
+function renderMode() {
+  const bulk = S.mode === 'bulk';
+  $('singleView').hidden = bulk; $('singlePanel').hidden = bulk;
+  $('bulkView').hidden = !bulk; $('bulkPanel').hidden = !bulk;
+  document.querySelectorAll('#modeBar .chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.m === S.mode)));
+}
+
+function renderBulk() {
+  const B = S.bulk, running = B.running;
+  $('bulkBtn').disabled = !B.ids.length || S.busy; $('bulkBtn').textContent = running ? 'Working…' : 'Retrieve outcomes & milestones';
+  $('bulkStop').hidden = !running; $('xlsFile').disabled = running; $('lookback2').disabled = running;
+  const have = B.rows.length > 0 && !running;
+  $('sumCsv').disabled = $('detCsv').disabled = !have;
+  $('bnotes').hidden = !B.notes.length; $('bnotes').textContent = B.notes.join('\n\n');
+  if (!B.rows.length) {
+    $('bmeta').textContent = B.ids.length ? `${B.ids.length} interaction ID${B.ids.length === 1 ? '' : 's'} loaded from ${B.fileName}. Choose Retrieve.` : 'Choose a spreadsheet of interaction IDs, then choose Retrieve.';
+    $('bempty').textContent = running ? 'Working…' : 'No results yet.'; $('bempty').hidden = false; $('bbody').hidden = true; return;
+  }
+  const rs = [...B.results.values()];
+  $('bmeta').innerHTML = `<strong>${esc(B.fileName)}</strong> · ${B.rows.length} interaction${B.rows.length === 1 ? '' : 's'}: ${rs.filter((r) => r.status === 'ok').length} with results · ${rs.filter((r) => r.status === 'empty').length} empty · ${rs.filter((r) => r.status === 'notfound').length} not found · ${rs.filter((r) => r.status === 'error').length} errors. Select an interaction ID to see its full outcome/milestone breakdown.`;
+  $('bempty').hidden = true; $('bbody').hidden = false;
+  $('bhead').innerHTML = `<tr><th>Interaction ID</th>${B.columns.map((c) => `<th title="${esc(c.kind === 'Milestone' ? 'Milestone' : c.kind === 'Outcome' ? 'Outcome' : c.name)}">${esc(c.name)}</th>`).join('')}<th>Lookup status</th><th>Started</th></tr>`;
+  const tok = (v) => v.split(' | ').map((x) => { const u = x.toUpperCase(); const cls = u === 'SUCCESS' ? 'succ' : u === 'FAILURE' ? 'fail' : /^\d+$/.test(x) ? 'cnt' : ''; return `<span class="vtok ${cls}">${esc(x)}</span>`; }).join('');
+  $('brows').innerHTML = B.rows.map((r) => `<tr>
+    <td class="id"><button type="button" data-open="${esc(r.id)}" ${B.results.get(r.id) && B.results.get(r.id).events.length ? '' : 'disabled style="text-decoration:none;color:inherit;cursor:default"'}>${esc(r.id)}</button></td>
+    ${r.values.map((v) => `<td>${v ? tok(v) : ''}</td>`).join('')}
+    <td class="st ${r.cls}">${esc(r.status)}</td><td class="time">${esc(r.start ? fmtTime(r.start).main : '')}</td></tr>`).join('');
+}
+
+function bulkOpen(id) {
+  const r = S.bulk.results.get(id); if (!r || !r.events.length) return;
+  S.result = { ...r, source: r.source }; S.view = 'group'; S.open = new Set(); S.mode = 'single'; $('convId').value = id;
+  clearMsg(); renderAll();
+}
+
+const stamp = () => { const d = new Date(), p = (x) => String(x).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`; };
+function downloadSummaryCsv() {
+  const B = S.bulk; if (!B.rows.length) return;
+  const head = ['Interaction ID', ...B.columns.map((c) => c.name), 'Lookup status', 'Conversation start (UTC)'];
+  const rows = B.rows.map((r) => [r.id, ...r.values, r.status, r.start]);
+  download(`interactions_outcomes_summary_${stamp()}.csv`, '\ufeff' + [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+}
+function downloadDetailCsv() {
+  const B = S.bulk; if (!B.rows.length) return;
+  const head = ['Interaction ID', 'Lookup status', 'Order', 'Timestamp (UTC)', 'Type', 'Name', 'Architect ID', 'Outcome value', 'Outcome end (UTC)', 'Outcome duration (ms)', 'Parent outcome', 'Parent outcome #', 'Flow', 'Flow type', 'Flow version', 'Participant purpose', 'Session ID', 'Time precision'];
+  const rows = [];
+  B.rows.forEach((r) => {
+    const res = B.results.get(r.id);
+    if (!res || !res.events.length) { rows.push([r.id, r.status, ...Array(head.length - 2).fill('')]); return; }
+    res.events.forEach((e) => rows.push([r.id, r.status, e.order, e.ts, e.kind, e.name, e.id, e.value, e.end, e.durationMs ?? '', e.parentName || '', e.parentOrder || '', e.flowName, e.flowType, e.flowVersion, e.participant, e.sessionId, e.precision === 'exact' ? 'exact' : 'minute (order within minute not recoverable)']));
+  });
+  download(`interactions_outcomes_milestones_detail_${stamp()}.csv`, '\ufeff' + [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+}
 
 /* ---------- events ---------- */
 function wire() {
@@ -1005,66 +1378,28 @@ function wire() {
   $('clientId').addEventListener('input', saveCfg);
   $('region').addEventListener('change', saveCfg);
   $('clientId').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('authBtn').click(); });
-
-  $('typesHead').addEventListener('click', () => { S.typesOpen = !S.typesOpen; renderTypes(); });
-  $('typeList').addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-type]'); if (!b) return;
-    selectFlowType(b.dataset.type);
-  });
-
-  $('filter').addEventListener('input', renderFlows);
-  $('flowRows').addEventListener('change', (e) => {
-    const id = e.target.dataset && e.target.dataset.id; if (!id) return;
-    e.target.checked ? S.selected.add(id) : S.selected.delete(id);
-    renderFlows(); renderExport();
-  });
-  $('selAll').addEventListener('change', (e) => {
-    visibleFlows().forEach((f) => (e.target.checked ? S.selected.add(f.id) : S.selected.delete(f.id)));
-    renderFlows(); renderExport();
-  });
-  $('exportBtn').addEventListener('click', exportSelected);
+  $('goBtn').addEventListener('click', retrieve);
+  $('convId').addEventListener('keydown', (e) => { if (e.key === 'Enter') retrieve(); });
   $('csvBtn').addEventListener('click', downloadCsv);
-  $('expandBtn').addEventListener('click', () => {
-    const keys = [];
-    S.deps.forEach((e) => (e.groups || []).forEach((g) => g.items.length && keys.push(e.flow.id + '|' + g.label)));
-    const allOpen = keys.every((k) => S.depOpen.has(k));
-    keys.forEach((k) => (allOpen ? S.depOpen.delete(k) : S.depOpen.add(k)));
-    renderDeps();
+  $('modeBar').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.mode = b.dataset.m; clearMsg(); renderAll(); });
+  $('xlsFile').addEventListener('change', (e) => { loadFile(e.target.files[0]); e.target.value = ''; });
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => { if (!S.bulk.running) loadFile(e.dataTransfer.files[0]); });
+  $('bulkBtn').addEventListener('click', bulkRun);
+  $('bulkStop').addEventListener('click', bulkStop);
+  $('sumCsv').addEventListener('click', downloadSummaryCsv);
+  $('detCsv').addEventListener('click', downloadDetailCsv);
+  $('brows').addEventListener('click', (e) => { const b = e.target.closest('button[data-open]'); if (b && !b.disabled) bulkOpen(b.dataset.open); });
+  $('jsonBtn').addEventListener('click', downloadJson);
+  $('sumbar').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b) return; S.view = b.dataset.v; renderResults(); });
+  $('rows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tg]'); if (!b) return;
+    const k = b.dataset.tg; S.open.has(k) ? S.open.delete(k) : S.open.add(k); renderResults();
   });
-  $('depBody').addEventListener('click', (e) => {
-    const sw = e.target.closest('button[data-bytask]');
-    if (sw) { const k = sw.dataset.bytask; S.depByTask.has(k) ? S.depByTask.delete(k) : S.depByTask.add(k); renderDeps(); return; }
-    const tt = e.target.closest('button[data-ttoggle]');
-    if (tt) { const k = tt.dataset.ttoggle; S.taskOpen.has(k) ? S.taskOpen.delete(k) : S.taskOpen.add(k); renderDeps(); return; }
-    const b = e.target.closest('button[data-toggle]'); if (!b) return;
-    const k = b.dataset.toggle;
-    S.depOpen.has(k) ? S.depOpen.delete(k) : S.depOpen.add(k);
-    renderDeps();
-  });
-  $('tfBtn').addEventListener('click', exportTerraform);
-  $('depBody').addEventListener('change', (e) => {
-    const t = e.target.dataset || {};
-    if (t.item !== undefined) {
-      e.target.checked ? S.depOff.delete(t.item) : S.depOff.add(t.item);
-    } else if (t.task !== undefined) {      // whole task: tick/untick the objects of this type used by that task
-      const [flowId, label, ...r] = t.task.split('|'); const tl = r.join('|');
-      const g = ((S.deps.get(flowId) || {}).groups || []).find((x) => x.label === label);
-      const task = g && (g.tasks || []).find((x) => x.label === tl);
-      if (task) task.items.forEach((d) => (e.target.checked ? S.depOff.delete(itemKey(flowId, label, d)) : S.depOff.add(itemKey(flowId, label, d))));
-    } else if (t.dtype !== undefined) {     // whole type: tick/untick every object of that type for that flow
-      const [flowId, ...rest] = t.dtype.split('|'); const label = rest.join('|');
-      const g = ((S.deps.get(flowId) || {}).groups || []).find((x) => x.label === label);
-      if (g) g.items.forEach((d) => (e.target.checked ? S.depOff.delete(itemKey(flowId, label, d)) : S.depOff.add(itemKey(flowId, label, d))));
-    } else return;
-    renderDeps();
-  });
-  $('depAll').addEventListener('change', (e) => {
-    S.deps.forEach((x) => (x.groups || []).forEach((g) => g.items.forEach((d) => {
-      const k = itemKey(x.flow.id, g.label, d);
-      e.target.checked ? S.depOff.delete(k) : S.depOff.add(k);
-    })));
-    renderDeps();
-  });
+  $('expAll').addEventListener('click', () => { ((S.result && S.result.groups) || []).forEach((g) => g.milestones.length && S.open.add(g.key)); renderResults(); });
+  $('colAll').addEventListener('click', () => { S.open.clear(); renderResults(); });
 }
 
 /* ---------- boot ---------- */
