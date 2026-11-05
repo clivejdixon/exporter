@@ -219,6 +219,16 @@
 @keyframes dgflash { 0%,100% { filter: none; } 50% { filter: drop-shadow(0 0 10px #F59E0B) drop-shadow(0 0 3px #F59E0B); } }
 @media (prefers-reduced-motion: reduce) { #dgView .dg-flash { animation: none; filter: drop-shadow(0 0 8px #F59E0B); } }
 @media (max-width: 900px) { #dgView { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); overflow: auto; } #dgView .dg-rail { max-height: 50vh; } }
+#dgView .dg-task { grid-template-columns: 18px minmax(0,1fr) auto; padding: 6px 8px; }
+#dgView .dg-task.cur { background: rgba(255,255,255,.14); box-shadow: inset 3px 0 0 #FF9A00; }
+#dgView .dg-tname { text-align: left; font: inherit; color: #fff; background: none; border: 0; padding: 0; cursor: pointer; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+#dgView .dg-tname small { display: block; color: #9FB0D3; font-size: 11.5px; }
+#dgView .dg-tname:hover span { text-decoration: underline; }
+#dgView .dg-task:not(.absent) .n { background: #FF9A00; color: #122550; font-weight: 800; }
+#dgView .dg-task.absent .n { background: rgba(255,255,255,.1); }
+#dgView .dg-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+#dgView .dg-quick button { font: inherit; font-size: 12px; font-weight: 700; color: #fff; background: rgba(255,255,255,.12); border: 0; border-radius: 999px; padding: 4px 11px; cursor: pointer; }
+#dgView .dg-quick button:hover { background: rgba(255,255,255,.22); }
   .gcol { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; flex: none; }
   .gcol::-webkit-color-swatch-wrapper { padding: 0; } .gcol::-webkit-color-swatch { border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #CBD5E1; } .gcol::-moz-color-swatch { border: 2px solid #fff; border-radius: 50%; }
 </style>
@@ -5922,7 +5932,7 @@ function generateDot(graph, opts) {
 /* ====================================================================
    UI + STATE
    ==================================================================== */
-const S = { init: false, flows: [], getConfig: null, getDeps: null, onColor: null, groups: [], groupOff: new Set(), groupHits: new Map(), flowIdx: -1, model: null, task: null, graph: null, entered: [],
+const S = { init: false, flows: [], getConfig: null, getDeps: null, onColor: null, groups: [], taskOn: new Set(), taskFilter: '', objCounts: [], hits: new Map(), zipBusy: false, flowIdx: -1, model: null, task: null, graph: null, entered: [],
   sel: { types: new Map(), blocks: new Map() }, colorMem: {}, colorN: 0,
   prune: false, collapse: false, filter: { types: '', blocks: '' },
   scale: 1, tx: 0, ty: 0, lastSvg: '', renderSeq: 0, viz: null, hl: new Map(), natW: 0, natH: 0, cfgFlow: null };
@@ -5941,19 +5951,20 @@ function buildDom() {
       <button class="dg-btn ghost" id="dgBack" type="button">← Back to exporter</button>
       <h2>Task diagrams</h2>
       <label class="dg-lbl">Flow<select id="dgFlow"></select></label>
-      <label class="dg-lbl">Task<select id="dgTask" disabled></select></label>
     </div>
     <div class="dg-scroll" id="dgScroll">
+      <details class="dg-sec" open><summary>Reusable tasks <span class="dg-cnt" id="dgTkCnt">0</span></summary><div class="dg-body">
+        <div class="dg-hint">The number is how many of the objects you ticked in the exporter a task uses. Click a name to view it. Tick the tasks you want in the ZIP.</div>
+        <input type="search" id="dgTkS" placeholder="Search tasks" aria-label="Search tasks">
+        <div class="dg-quick" id="dgQuick"><button type="button" data-q="with">With objects</button><button type="button" data-q="all">All</button><button type="button" data-q="none">None</button></div>
+        <div class="dg-list" id="dgTkL" style="max-height: 330px"></div></div></details>
       <div class="dg-opts">
         <label class="dg-opt"><input type="checkbox" id="dgPrune"><span>Show only paths leading to selected items<small>Hides blocks that do not lead to anything you ticked</small></span></label>
         <label class="dg-opt"><input type="checkbox" id="dgColl"><span>Collapse non-selected blocks<small>Shrinks them to a one-line card</small></span></label>
       </div>
-      <details class="dg-sec" open><summary>Highlighting from your selection <span class="dg-cnt" id="dgGrpCnt">0</span></summary><div class="dg-body">
-        <div class="dg-hint">Blocks that use the objects you ticked in the exporter's dependency list are highlighted. Change the ticks there and reopen the diagram to update.</div>
-        <div class="dg-list" id="dgGrpL" style="max-height:none"></div></div></details>
       <details class="dg-sec"><summary>Extra: block types <span class="dg-cnt" id="dgTyCnt">0</span></summary><div class="dg-body"><input type="search" id="dgTyS" placeholder="Search block types" aria-label="Search block types"><div class="dg-list" id="dgTyL"></div></div></details>
       <details class="dg-sec"><summary>Extra: individual blocks <span class="dg-cnt" id="dgBlCnt">0</span></summary><div class="dg-body"><input type="search" id="dgBlS" placeholder="Search by name or trackingId" aria-label="Search blocks"><div class="dg-list" id="dgBlL"></div></div></details>
-      <div class="dg-hint">When a block matches several selections the order of precedence is: individual block, then the object groups in the order listed, then block type.</div>
+      <div class="dg-hint">When a block matches several selections the order of precedence is: individual block, then the object groups in the order they appear in the exporter, then block type. Set group colours with the round swatches in the exporter's dependency list.</div>
     </div>
   </aside>
   <main class="dg-stage">
@@ -5965,8 +5976,9 @@ function buildDom() {
       <button class="dg-btn" id="dgFit" type="button">Fit width</button>
       <button class="dg-btn" id="dgZ100" type="button">100%</button>
       <span class="dg-status" id="dgStatus"></span><span class="dg-sp"></span>
-      <button class="dg-btn pri" id="dgSvg" type="button">Download SVG</button>
-      <button class="dg-btn pri" id="dgPng" type="button">Download PNG</button>
+      <button class="dg-btn" id="dgSvg" type="button" title="Download the task you are viewing as an SVG file">Download SVG</button>
+      <button class="dg-btn" id="dgPng" type="button" title="Download the task you are viewing as a PNG image">Download PNG</button>
+      <button class="dg-btn pri" id="dgZip" type="button" disabled title="Draw every ticked task and download them as separate SVG files in one ZIP">Download ZIP</button>
     </div>
     <div class="dg-vp" id="dgVp">
       <div class="dg-canvas" id="dgCanvas"></div>
@@ -5988,24 +6000,25 @@ async function loadFlow(i) {
   S.flowIdx = i; const f = S.flows[i];
   Object.values(S.sel).forEach((m) => m.clear()); S.model = S.task = S.graph = null; S.lastSvg = '';
   $('dgCanvas').innerHTML = ''; $('dgErr').hidden = true; $('dgEmpty').hidden = false; $('dgEmpty').innerHTML = '<h3>Reading the flow configuration…</h3>';
-  $('dgTask').innerHTML = ''; $('dgTask').disabled = true; renderLists(); renderLegend(); renderTable();
+  S.taskOn = new Set(); S.objCounts = []; S.taskFilter = ''; $('dgTkS').value = ''; renderLists(); renderLegend(); renderTable();
   try {
     const cfg = await S.getConfig(f);
     if (S.flowIdx !== i) return;
-    const model = parseConfig(cfg, f.name); S.model = model; S.cfgFlow = f; S.groups = S.getDeps ? S.getDeps(f) : []; S.groupOff.clear();
-    const sel = $('dgTask');
-    sel.innerHTML = model.tasks.map((t, k) => `<option value="${k}">${esc(t.name)}${t.kind ? ' (' + esc(t.kind) + ')' : ''}  ·  ${t.blocks.length} blocks</option>`).join('');
-    sel.disabled = !model.tasks.length;
-    if (!model.tasks.length) { $('dgEmpty').innerHTML = `<h3>No tasks in this flow</h3><div>${esc(f.name)} (${esc(f.type || '')}) has no tasks or bot states to draw.</div>`; return; }
-    chooseTask(0);
+    const model = parseConfig(cfg, f.name); S.model = model; S.cfgFlow = f; S.groups = S.getDeps ? S.getDeps(f) : [];
+    if (!model.tasks.length) { $('dgEmpty').innerHTML = `<h3>No tasks in this flow</h3><div>${esc(f.name)} (${esc(f.type || '')}) has no tasks or bot states to draw.</div>`; renderLists(); return; }
+    // how many of the objects ticked in the exporter does each task use? Tasks that use some start ticked for the ZIP.
+    S.objCounts = model.tasks.map((t) => { const r = computeHighlights(t); return { n: r.objs.size }; });
+    const withObjs = model.tasks.map((_, k) => k).filter((k) => S.objCounts[k].n > 0);
+    S.taskOn = new Set(withObjs.length ? withObjs : model.tasks.map((_, k) => k));
+    chooseTask(withObjs.length ? withObjs[0] : 0);
   } catch (e) { showError('The flow configuration could not be read.\n' + (e && e.message ? e.message : e)); }
 }
+const jsonOf = (t) => (t.json ||= JSON.stringify(t.raw));
+const enteredOf = (task) => S.model.tasks.filter((t) => t !== task && task.id && jsonOf(t).includes(task.id)).map((t) => t.name);
 function chooseTask(i) {
-  S.task = S.model.tasks[i]; S.graph = buildGraph(S.task); $('dgTask').value = String(i);
-  const jsonOf = (t) => (t.json ||= JSON.stringify(t.raw));
-  S.entered = S.model.tasks.filter((t) => t !== S.task && S.task.id && jsonOf(t).includes(S.task.id)).map((t) => t.name);
+  S.task = S.model.tasks[i]; S.graph = buildGraph(S.task); S.entered = enteredOf(S.task);
   $('dgTtl').textContent = `${S.model.name}  ›  ${S.task.name}`;
-  renderLists(); scheduleRender(true);
+  renderLists(); markCurrentTask(); scheduleRender(true);
 }
 
 /* ---------- left-panel lists ---------- */
@@ -6019,8 +6032,8 @@ function listRow(kind, key, label, sub, count, absent, sublevel) {
 }
 function renderLists() {
   const m = S.model, t = S.task;
-  if (!m || !t) { ['dgGrpL', 'dgTyL', 'dgBlL'].forEach((id) => ($(id).innerHTML = '')); ['dgGrpCnt', 'dgTyCnt', 'dgBlCnt'].forEach((id) => ($(id).textContent = '0')); return; }
-  renderGroups();
+  if (!m || !t) { ['dgTkL', 'dgTyL', 'dgBlL'].forEach((id) => ($(id).innerHTML = '')); ['dgTkCnt', 'dgTyCnt', 'dgBlCnt'].forEach((id) => ($(id).textContent = '0')); updateZipBtn(); return; }
+  renderTaskList();
   const types = new Map(); t.blocks.forEach((b) => types.set(b.type, (types.get(b.type) || 0) + 1));
   $('dgTyL').innerHTML = [...types.entries()].filter(([ty]) => match(typeLabel(ty), S.filter.types)).sort((a, b) => b[1] - a[1]).map(([ty, n]) => listRow('types', ty, typeLabel(ty), '', n, false)).join('') || '<div class="dg-hint">No block types.</div>';
   $('dgTyCnt').textContent = types.size;
@@ -6029,40 +6042,43 @@ function renderLists() {
   $('dgBlCnt').textContent = t.blocks.length;
 }
 
-/* ---------- the exporter's object groups (Milestones, Outcomes, Data Actions, ...) ---------- */
-function renderGroups() {
-  const live = S.groups.filter((g) => g.items.length);
-  $('dgGrpCnt').textContent = live.reduce((n, g) => n + g.items.filter((i) => i.on).length, 0);
-  $('dgGrpL').innerHTML = live.map((g) => {
-    const ticked = g.items.filter((i) => i.on).length, here = S.groupHits.get(g.label) || 0, off = S.groupOff.has(g.label);
-    return `<div class="dg-row${here === 0 ? ' absent' : ''}"><input type="checkbox" data-g="${esc(g.label)}" ${off ? '' : 'checked'} aria-label="Highlight ${esc(g.label)}">` +
-      `<div class="t">${esc(g.label)}<small>${ticked} of ${g.items.length} object${g.items.length === 1 ? '' : 's'} selected</small></div><span class="n" title="blocks highlighted in this task">${here}</span>` +
-      `<input type="color" data-gcol="${esc(g.label)}" value="${g.color}" aria-label="Colour for ${esc(g.label)}"></div>`;
-  }).join('') || '<div class="dg-hint">No dependency objects were found for this flow.</div>';
+/* ---------- the reusable-task list ---------- */
+function renderTaskList() {
+  const m = S.model; if (!m) { $('dgTkL').innerHTML = ''; $('dgTkCnt').textContent = '0'; updateZipBtn(); return; }
+  const keep = $('dgTkL').scrollTop;       // keep the scroll position when the list is redrawn
+  $('dgTkL').innerHTML = m.tasks.map((t, i) => ({ t, i })).filter(({ t }) => match(t.name + ' ' + t.kind, S.taskFilter)).map(({ t, i }) => {
+    const n = S.objCounts[i] ? S.objCounts[i].n : 0;
+    return `<div class="dg-row dg-task${S.task === t ? ' cur' : ''}${n === 0 ? ' absent' : ''}" data-ti="${i}"><input type="checkbox" data-tk="${i}" ${S.taskOn.has(i) ? 'checked' : ''} aria-label="Include ${esc(t.name)} in the ZIP">` +
+      `<button type="button" class="dg-tname" data-view="${i}" title="Show this task"><span>${esc(t.name)}</span><small>${t.kind ? esc(t.kind) + ' · ' : ''}${t.blocks.length} blocks</small></button>` +
+      `<span class="n" title="${n} of the objects you ticked in the exporter ${n === 1 ? 'is' : 'are'} used in this task">${n}</span></div>`;
+  }).join('') || '<div class="dg-hint">No tasks match.</div>';
+  $('dgTkL').scrollTop = keep; updateTaskCount();
 }
+function updateTaskCount() { $('dgTkCnt').textContent = S.model ? `${S.taskOn.size} of ${S.model.tasks.length}` : '0'; updateZipBtn(); }
+function updateZipBtn() {
+  const n = S.taskOn.size, b = $('dgZip');
+  b.disabled = !S.model || n === 0 || S.zipBusy; b.textContent = n ? `Download ZIP (${n} task${n === 1 ? '' : 's'})` : 'Download ZIP';
+}
+function markCurrentTask() { [...$('dgTkL').children].forEach((r) => r.classList && r.classList.toggle('cur', S.model && S.model.tasks[+r.dataset.ti] === S.task)); }
 
 /* ---------- highlight resolution ---------- */
-function computeHighlights() {
-  const hl = new Map(); const t = S.task; S.groupHits = new Map(); if (!t) return hl;
-  // block id -> the ticked exporter objects that use it (in group order)
-  const byAid = new Map();
-  for (const g of S.groups) {
-    if (S.groupOff.has(g.label)) continue;
-    for (const it of g.items) { if (!it.on) continue; for (const aid of it.blocks) (byAid.get(aid) || byAid.set(aid, []).get(aid)).push({ g, it }); }
-  }
+function computeHighlights(t) {       // for any task: which blocks are highlighted, per-group hit counts, and the distinct ticked objects it uses
+  const hl = new Map(), hits = new Map(), objs = new Set(); if (!t) return { hl, hits, objs };
+  const byAid = new Map();   // block id -> the ticked exporter objects that use it (in group order)
+  for (const g of S.groups) for (const it of g.items) { if (!it.on) continue; for (const aid of it.blocks) (byAid.get(aid) || byAid.set(aid, []).get(aid)).push({ g, it }); }
   for (const b of t.blocks) {
     const id = String(b.uid); let color = '', why = '';
-    let hits = byAid.get(b.aid);
+    let hs = byAid.get(b.aid);
     // a milestone block also mentions its outcome; it should follow its own milestone tick, not the outcome's
-    if (hits && b.fam === 'milestone') hits = hits.filter((h) => !(h.it.id && h.it.id === b.raw.outcomeId));
-    if (hits && !hits.length) hits = undefined;
-    if (hits) new Set(hits.map((h) => h.g.label)).forEach((l) => S.groupHits.set(l, (S.groupHits.get(l) || 0) + 1));
+    if (hs && b.fam === 'milestone') hs = hs.filter((h) => !(h.it.id && h.it.id === b.raw.outcomeId));
+    if (hs && !hs.length) hs = undefined;
+    if (hs) { new Set(hs.map((h) => h.g.label)).forEach((l) => hits.set(l, (hits.get(l) || 0) + 1)); hs.forEach((h) => objs.add(h.g.label + '|' + (h.it.id || h.it.name))); }
     if (S.sel.blocks.has(id)) { color = S.sel.blocks.get(id); why = 'Block'; }
-    else if (hits) { color = hits[0].g.color; why = `${hits[0].g.label}: ${hits[0].it.name}` + (hits.length > 1 ? ` (+${hits.length - 1} more)` : ''); }
+    else if (hs) { color = hs[0].g.color; why = `${hs[0].g.label}: ${hs[0].it.name}` + (hs.length > 1 ? ` (+${hs.length - 1} more)` : ''); }
     else if (S.sel.types.has(b.type)) { color = S.sel.types.get(b.type); why = 'Block type: ' + typeLabel(b.type); }
     if (color) hl.set(id, { color, why, block: b });
   }
-  return hl;
+  return { hl, hits, objs };
 }
 
 /* ---------- rendering ---------- */
@@ -6073,7 +6089,7 @@ async function renderDiagram(fit) {
   const seq = ++S.renderSeq; $('dgBusy').hidden = false; $('dgEmpty').hidden = true;
   await new Promise((r) => setTimeout(r, 15));
   try {
-    S.hl = computeHighlights();
+    const hr = computeHighlights(S.task); S.hl = hr.hl; S.hits = hr.hits;
     let g = S.graph; if (S.prune && S.hl.size) g = pruneGraph(g, [...S.hl.keys()]);
     const dot = generateDot(g, { highlight: S.hl, anySelection: S.hl.size > 0, collapse: S.collapse, entered: S.entered, flowName: S.model.name });
     const viz = await ensureGraphviz();
@@ -6082,7 +6098,7 @@ async function renderDiagram(fit) {
     svg = postprocessSvg(svg); S.lastSvg = svg; $('dgCanvas').innerHTML = svg;
     const el = $('dgCanvas').querySelector('svg'); S.natW = parseFloat(el.getAttribute('width')); S.natH = parseFloat(el.getAttribute('height'));
     if (fit) fitWidth(); else applyView();
-    renderGroups(); renderLegend(); renderTable(); $('dgErr').hidden = true;
+    renderLegend(); renderTable(); $('dgErr').hidden = true;
     $('dgStatus').textContent = `${g.nodes.size} block${g.nodes.size === 1 ? '' : 's'} drawn${S.prune && S.hl.size ? ' (paths to selected items only)' : ''}`;
   } catch (e) { showError('The diagram could not be drawn.\n' + (e && e.message ? e.message : e)); }
   finally { if (seq === S.renderSeq) $('dgBusy').hidden = true; }
@@ -6093,15 +6109,15 @@ function postprocessSvg(svg) {
 }
 
 /* ---------- legend + table ---------- */
-function legendItems() {
+function legendItemsFor(hits, task) {
   const items = [];
-  S.groups.forEach((g) => { if (!S.groupOff.has(g.label) && (S.groupHits.get(g.label) || 0) > 0) items.push({ c: g.color, t: `${g.label} (${S.groupHits.get(g.label)} block${S.groupHits.get(g.label) === 1 ? '' : 's'})` }); });
-  S.sel.types.forEach((c, k) => items.push({ c, t: `Block type: ${typeLabel(k)}` }));
-  S.sel.blocks.forEach((c, k) => { const b = S.task && S.task.blocks.find((x) => String(x.uid) === k); items.push({ c, t: `Block: ${b ? b.name + (b.trackingId != null ? ' #' + b.trackingId : '') : k}` }); });
+  S.groups.forEach((g) => { const n = hits.get(g.label) || 0; if (n > 0) items.push({ c: g.color, t: `${g.label} (${n} block${n === 1 ? '' : 's'})` }); });
+  S.sel.types.forEach((c, k) => { if (task.blocks.some((b) => b.type === k)) items.push({ c, t: `Block type: ${typeLabel(k)}` }); });
+  S.sel.blocks.forEach((c, k) => { const b = task.blocks.find((x) => String(x.uid) === k); if (b) items.push({ c, t: `Block: ${b.name + (b.trackingId != null ? ' #' + b.trackingId : '')}` }); });
   return items;
 }
 function renderLegend() {
-  const items = legendItems();
+  const items = S.task ? legendItemsFor(S.hits, S.task) : [];
   $('dgLegend').innerHTML = (items.length ? items.map((i) => `<span class="dg-lg"><span class="dg-sw" style="background:${i.c}"></span>${esc(i.t)}</span>`).join('') + '<span class="dg-lg"><span class="dg-sw mute"></span>Not selected</span>'
     : '<span class="dg-k">Nothing is highlighted in this task. Tick objects in the exporter\'s dependency list, or use the extra highlights on the left.</span>') + '<span class="dg-lg"><span class="dg-sw dash"></span>Other outcome blocks / not reachable (dashed)</span>';
 }
@@ -6125,10 +6141,9 @@ function focusBlock(uid) {
 }
 
 /* ---------- exports (SVG includes a legend) ---------- */
-function exportSvg() {
-  if (!S.lastSvg) return '';
-  const items = legendItems();
-  const doc = new DOMParser().parseFromString(S.lastSvg, 'image/svg+xml'); const svg = doc.documentElement; const ns = 'http://www.w3.org/2000/svg';
+function exportSvg(svgText, items) {     // adds the legend under the diagram
+  if (!svgText) return '';
+  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml'); const svg = doc.documentElement; const ns = 'http://www.w3.org/2000/svg';
   const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number); const W = parseFloat(svg.getAttribute('width')), H = parseFloat(svg.getAttribute('height'));
   const rows = [...items.map((i) => ({ c: i.c, t: i.t })), ...(items.length ? [{ c: '#E2E8F0', t: 'Not selected' }] : []), { c: '#FFFFFF', t: 'Other outcome blocks / not reachable (dashed)', dash: true }];
   const lh = 22, extra = 16 + lh * (rows.length + 1), k = vb[2] / W;
@@ -6146,9 +6161,10 @@ function exportSvg() {
 }
 function saveBlob(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
 const fileBase = () => `${S.model ? S.model.name : 'flow'}__${S.task ? S.task.name : 'diagram'}`.replace(/[^\w.\-]+/g, '_');
-function downloadSvg() { const s = exportSvg(); if (s) saveBlob(`${fileBase()}.svg`, new Blob([s], { type: 'image/svg+xml' })); }
+function currentExport() { return S.lastSvg && S.task ? exportSvg(S.lastSvg, legendItemsFor(S.hits, S.task)) : ''; }
+function downloadSvg() { const s = currentExport(); if (s) saveBlob(`${fileBase()}.svg`, new Blob([s], { type: 'image/svg+xml' })); }
 function downloadPng() {
-  const s = exportSvg(); if (!s) return;
+  const s = currentExport(); if (!s) return;
   const svg = new DOMParser().parseFromString(s, 'image/svg+xml').documentElement; const w = parseFloat(svg.getAttribute('width')), h = parseFloat(svg.getAttribute('height'));
   const sc = Math.min(2, 6000 / Math.max(w, h)); const img = new Image();
   img.onload = () => { const c = document.createElement('canvas'); c.width = Math.round(w * sc); c.height = Math.round(h * sc); const x = c.getContext('2d'); x.fillStyle = '#FAFBFD'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); c.toBlob((b) => saveBlob(`${fileBase()}.png`, b), 'image/png'); };
@@ -6156,27 +6172,88 @@ function downloadPng() {
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
 }
 
+/* ---------- ZIP of every ticked task, one SVG per task ---------- */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (u8) => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+async function deflateRaw(u8) {      // compress when the browser can; otherwise null (the file is then stored as is)
+  try { if (typeof CompressionStream === 'undefined') return null; return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); } catch (e) { return null; }
+}
+async function makeZip(files) {      // files: [{name, data: Uint8Array}]  ->  Blob (a standard .zip)
+  const enc = new TextEncoder(), parts = [], central = []; let offset = 0;
+  const d = new Date(), time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+    const packed = await deflateRaw(f.data); const body = packed && packed.length < size ? packed : f.data; const method = body === f.data ? 0 : 8;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, method, true); lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, body.length, true); lh.setUint32(22, size, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), name, body);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, method, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, body.length, true); ch.setUint32(24, size, true); ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + body.length;
+  }
+  const cdSize = central.reduce((n, p) => n + p.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+function svgForTask(t, viz) {        // the finished SVG (legend included) for any task, using the current highlight settings
+  const g0 = t === S.task ? S.graph : buildGraph(t);
+  const { hl, hits } = computeHighlights(t);
+  const g = S.prune && hl.size ? pruneGraph(g0, [...hl.keys()]) : g0;
+  const dot = generateDot(g, { highlight: hl, anySelection: hl.size > 0, collapse: S.collapse, entered: enteredOf(t), flowName: S.model.name });
+  return exportSvg(postprocessSvg(viz.renderString(dot, { format: 'svg', engine: 'dot' })), legendItemsFor(hits, t));
+}
+async function downloadZip() {
+  if (!S.model || S.zipBusy || !S.taskOn.size) return;
+  const idx = [...S.taskOn].sort((a, b) => a - b); S.zipBusy = true; updateZipBtn(); $('dgBusy').hidden = false;
+  try {
+    const viz = await ensureGraphviz(), enc = new TextEncoder(), files = [], used = new Set(), problems = [];
+    const safe = (x) => String(x).replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '') || 'x';
+    for (let k = 0; k < idx.length; k++) {
+      const t = S.model.tasks[idx[k]]; $('dgBusy').textContent = `Drawing ${k + 1} of ${idx.length}: ${t.name}`;
+      await new Promise((r) => setTimeout(r, 15));
+      try {
+        const svg = svgForTask(t, viz); const stem = `${safe(S.model.name)}__${safe(t.name)}`; let name = stem + '.svg';
+        for (let n = 2; used.has(name.toLowerCase()); n++) name = `${stem}_${n}.svg`;     // two tasks can share a name
+        used.add(name.toLowerCase()); files.push({ name, data: enc.encode(svg) });
+      } catch (e) { problems.push(`${t.name}: ${e && e.message ? e.message : e}`); }
+    }
+    if (!files.length) throw new Error(problems.join('\n') || 'Nothing could be drawn.');
+    saveBlob(`${safe(S.model.name)}__task_diagrams.zip`, await makeZip(files));
+    $('dgStatus').textContent = `ZIP created with ${files.length} diagram${files.length === 1 ? '' : 's'}`;
+    if (problems.length) showError(`${problems.length} task${problems.length === 1 ? ' was' : 's were'} left out of the ZIP:\n` + problems.join('\n'));
+  } catch (e) { showError('The ZIP could not be created.\n' + (e && e.message ? e.message : e)); }
+  finally { S.zipBusy = false; $('dgBusy').textContent = 'Drawing…'; $('dgBusy').hidden = true; updateZipBtn(); }
+}
+
 /* ---------- events ---------- */
 function wire() {
   $('dgBack').addEventListener('click', close);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('dgView').hidden) close(); });
   $('dgFlow').addEventListener('change', (e) => loadFlow(+e.target.value));
-  $('dgTask').addEventListener('change', (e) => chooseTask(+e.target.value));
+  $('dgTkS').addEventListener('input', (e) => { S.taskFilter = e.target.value; renderTaskList(); });
+  $('dgTkL').addEventListener('click', (e) => { const v = e.target.closest('[data-view]'); if (v) chooseTask(+v.dataset.view); });
+  $('dgTkL').addEventListener('change', (e) => { const t = e.target; if (t.dataset && t.dataset.tk !== undefined) { t.checked ? S.taskOn.add(+t.dataset.tk) : S.taskOn.delete(+t.dataset.tk); updateTaskCount(); } });
+  $('dgQuick').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-q]'); if (!b || !S.model) return; const all = S.model.tasks.map((_, i) => i);
+    S.taskOn = new Set(b.dataset.q === 'all' ? all : b.dataset.q === 'none' ? [] : all.filter((i) => S.objCounts[i].n > 0)); renderTaskList();
+  });
+  $('dgZip').addEventListener('click', downloadZip);
   $('dgPrune').addEventListener('change', (e) => { S.prune = e.target.checked; scheduleRender(false); });
   $('dgColl').addEventListener('change', (e) => { S.collapse = e.target.checked; scheduleRender(false); });
   [['dgTyS', 'types'], ['dgBlS', 'blocks']].forEach(([id, k]) => $(id).addEventListener('input', (e) => { S.filter[k] = e.target.value; renderLists(); }));
   const scroll = $('dgScroll');
   scroll.addEventListener('change', (e) => {
     const t = e.target;
-    if (t.dataset && t.dataset.g !== undefined) { t.checked ? S.groupOff.delete(t.dataset.g) : S.groupOff.add(t.dataset.g); scheduleRender(false); return; }
-    if (t.dataset && t.dataset.gcol !== undefined) { setGroupColor(t.dataset.gcol, t.value); return; }
     const kind = t.dataset && t.dataset.kind; if (!kind) return; const key = t.dataset.key;
     if (t.matches('[data-color]')) { S.colorMem[kind + '|' + key] = t.value; if (S.sel[kind].has(key)) { S.sel[kind].set(key, t.value); scheduleRender(false); } return; }
     if (t.checked) S.sel[kind].set(key, colorFor(kind, key)); else S.sel[kind].delete(key);
     const ci = t.closest('.dg-row').querySelector('[data-color]'); ci.disabled = !t.checked; ci.value = S.sel[kind].get(key) || S.colorMem[kind + '|' + key] || IDLE;
     scheduleRender(false);
   });
-  scroll.addEventListener('input', (e) => { const t = e.target; if (t.dataset && t.dataset.gcol !== undefined) { setGroupColor(t.dataset.gcol, t.value); return; } if (t.matches && t.matches('[data-color]')) { const kind = t.dataset.kind, key = t.dataset.key; S.colorMem[kind + '|' + key] = t.value; if (S.sel[kind].has(key)) { S.sel[kind].set(key, t.value); scheduleRender(false); } } });
+  scroll.addEventListener('input', (e) => { const t = e.target; if (t.matches && t.matches('[data-color]')) { const kind = t.dataset.kind, key = t.dataset.key; S.colorMem[kind + '|' + key] = t.value; if (S.sel[kind].has(key)) { S.sel[kind].set(key, t.value); scheduleRender(false); } } });
   $('dgTbody').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-uid]'); if (tr) focusBlock(tr.dataset.uid); });
   $('dgZin').addEventListener('click', () => zoomAt(1.25)); $('dgZout').addEventListener('click', () => zoomAt(0.8));
   $('dgFit').addEventListener('click', fitWidth); $('dgZ100').addEventListener('click', () => { S.scale = 1; S.tx = 12; S.ty = 8; applyView(); });
@@ -6187,11 +6264,6 @@ function wire() {
   vp.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; drag = { x: e.clientX, y: e.clientY, tx: S.tx, ty: S.ty }; vp.classList.add('drag'); vp.setPointerCapture(e.pointerId); });
   vp.addEventListener('pointermove', (e) => { if (!drag) return; S.tx = drag.tx + e.clientX - drag.x; S.ty = drag.ty + e.clientY - drag.y; applyView(); });
   ['pointerup', 'pointercancel'].forEach((ev) => vp.addEventListener(ev, () => { drag = null; vp.classList.remove('drag'); }));
-}
-
-function setGroupColor(label, color) {
-  const g = S.groups.find((x) => x.label === label); if (!g) return;
-  g.color = color; if (S.onColor) S.onColor(label, color); scheduleRender(false);
 }
 
 /* ---------- Graphviz: unpacked on first use ----------
@@ -6271,7 +6343,7 @@ const K = {
   verifier: 'gcFlowExporter.verifier.v1',
   state: 'gcFlowExporter.state.v1',
 };
-const APP_BUILD = '2026-11-05 · diagrams follow the dependency ticks';
+const APP_BUILD = '2026-11-05 · task list and ZIP export';
 const REDIRECT_URI = location.origin + location.pathname;
 
 const $ = (id) => document.getElementById(id);
