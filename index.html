@@ -231,6 +231,24 @@
 #dgView .dg-quick button:hover { background: rgba(255,255,255,.22); }
   .gcol { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; flex: none; }
   .gcol::-webkit-color-swatch-wrapper { padding: 0; } .gcol::-webkit-color-swatch { border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #CBD5E1; } .gcol::-moz-color-swatch { border: 2px solid #fff; border-radius: 50%; }
+
+  /* ---- API script dialog ---- */
+  .dlg { position: fixed; inset: 0; z-index: 900; background: rgba(12,27,62,.55); display: grid; place-items: center; padding: 20px; }
+  .dlg[hidden] { display: none; }
+  .dlg-box { background: #fff; border-radius: 20px; max-width: 660px; width: 100%; max-height: 90vh; overflow: auto; padding: 22px 24px; box-shadow: 0 30px 80px rgba(0,0,0,.35); outline: none; display: grid; gap: 14px; }
+  .dlg-box h2 { margin: 0; font-size: 20px; font-weight: 800; }
+  .dlg-lead { margin: 0; color: var(--mute); font-size: 13.5px; line-height: 1.5; }
+  .dlg-sum { display: grid; gap: 10px; }
+  .dlg-flow { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; font-size: 13.5px; display: grid; gap: 3px; word-break: break-word; }
+  .dlg-none, .dlg-skip { color: var(--mute); font-size: 12.5px; }
+  .dlg-opt { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; cursor: pointer; font-weight: 700; }
+  .dlg-opt small { display: block; color: var(--mute); font-size: 12px; font-weight: 400; }
+  .dlg-fmt { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 12px; margin: 0; display: grid; gap: 10px; }
+  .dlg-fmt legend { font-size: 13px; font-weight: 800; padding: 0 6px; }
+  .dlg-prog { font-size: 13px; color: var(--mute); } .dlg-prog:empty { display: none; }
+  .dlg-warn { display: grid; gap: 8px; }
+  .dlg-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .dlg-box code { background: #EEF1F8; padding: 1px 6px; border-radius: 6px; font-size: 12px; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -289,10 +307,11 @@
         <div class="side-actions">
           <button class="btn primary" id="exportBtn" type="button" disabled>Export to YAML</button>
           <button class="btn primary" id="tfBtn" type="button" disabled>Export to Terraform</button>
+          <button class="btn primary" id="apiBtn" type="button" disabled style="grid-column: 1 / -1">Export to API script (Python / Postman)</button>
           <button class="btn" id="diagBtn" type="button" disabled style="grid-column: 1 / -1">Task diagram</button>
           <span class="progress" id="progress"></span>
         </div>
-        <p class="note">Downloads go to your browser's default download folder, one file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it. <strong>Task diagram</strong> draws each task of the selected flow and highlights the blocks that use the objects ticked in the list below (set each group's colour with its round swatch). Download it as SVG or PNG.</p>
+        <p class="note">Downloads go to your browser's default download folder, one file per selected flow. The dependency list is read from the flow's manifest, the same data that is in the exported YAML. Tick the objects you want, then use <strong>Download list (.csv)</strong> or <strong>Export to Terraform</strong>. Each selected flow gets its own <code>&lt;flowname&gt;.tf</code>; keep each .tf in its own folder when you run it. <strong>Export to API script</strong> builds a Python 3 script, or a Postman collection of raw API calls, that creates the ticked objects in another org using the API only. <strong>Task diagram</strong> draws each task of the selected flow and highlights the blocks that use the objects ticked in the list below (set each group's colour with its round swatch). Download it as SVG or PNG.</p>
         <div class="deps" id="deps" hidden>
           <div class="deps-head">
             <label><input type="checkbox" id="depAll" checked /> Dependency objects</label>
@@ -6343,7 +6362,7 @@ const K = {
   verifier: 'gcFlowExporter.verifier.v1',
   state: 'gcFlowExporter.state.v1',
 };
-const APP_BUILD = '2026-11-05 · task list and ZIP export';
+const APP_BUILD = '2026-11-05 · API script export';
 const REDIRECT_URI = location.origin + location.pathname;
 
 const $ = (id) => document.getElementById(id);
@@ -7152,10 +7171,343 @@ function openDiagram() {
   });
 }
 
+/*__API_BEGIN__*/
+/* ---------- API script (Python 3): recreate the ticked objects in another org using only the public API ---------- */
+const API_TEMPLATE = "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n# =====================================================================================================\n#  GENESYS CLOUD: CREATE OBJECTS IN ANOTHER ORG USING THE PUBLIC API ONLY\n# =====================================================================================================\n#  Built by the Genesys Cloud Flow Exporter\n#    Source org : @@SOURCE_ORG@@ (@@SOURCE_REGION@@)\n#    Flow       : @@FLOW@@\n#    Built on   : @@GENERATED@@\n#\n#  OBJECTS IN THIS SCRIPT\n@@SUMMARY@@\n#\n# -----------------------------------------------------------------------------------------------------\n#  WHAT YOU NEED\n# -----------------------------------------------------------------------------------------------------\n#  1. Python 3.8 or newer, on Windows, macOS or Linux. Nothing else to install: this file only uses\n#     Python's standard library. To check, open a terminal and run:\n#         Windows : py --version          macOS / Linux : python3 --version\n#     (Get Python from https://www.python.org/downloads/ if it is missing.)\n#\n#  2. An OAuth client in the TARGET org (the org you want to create the objects in):\n#       Admin > Integrations > OAuth > Add Client\n#         App Name     : anything, for example \"Object creation script\"\n#         Grant Types  : Client Credentials\n#         Roles tab    : add a role that has the permissions listed below, and give it access to\n#                        ALL divisions (otherwise objects in other divisions cannot be created)\n#       Save, then copy the Client ID and the Client Secret (the secret is only shown once).\n#\n#  3. A role with these permissions (Admin > People & Permissions > Roles). A custom role with just\n#     these is enough; the built-in \"Admin\" role also works for a one-off run:\n@@PERMISSIONS@@\n#     If a call is refused, the error shown by this script names the permission that is missing.\n#\n#  4. Network access from your computer to https://login.<region> and https://api.<region> (port 443).\n#     Behind a proxy, set the HTTPS_PROXY environment variable first.\n#\n# -----------------------------------------------------------------------------------------------------\n#  HOW TO RUN IT: EXAMPLE FOR THE LONDON REGION (euw2.pure.cloud)\n# -----------------------------------------------------------------------------------------------------\n#  The region is the part of your Genesys Cloud sign-in address after \"login.\":\n#       sign-in address : https://login.euw2.pure.cloud\n#       --region value  : euw2.pure.cloud           (API address used: https://api.euw2.pure.cloud)\n#  Use your own target org's region in its place. Known regions:\n#       mypurecloud.com, use2.us-gov-pure.cloud, usw2.pure.cloud, cac1.pure.cloud, sae1.pure.cloud,\n#       mypurecloud.ie, euw2.pure.cloud, mypurecloud.de, euc2.pure.cloud, mec1.pure.cloud, aps1.pure.cloud,\n#       mypurecloud.com.au, mypurecloud.jp, apne2.pure.cloud, apne3.pure.cloud\n#\n#  Step 1. Save this file, then open a terminal in the folder that contains it.\n#\n#  Step 2. Give the script your client secret without typing it on the command line (optional; if you\n#          skip this the script asks for it, hidden, when it starts):\n#            Windows PowerShell : $env:GC_CLIENT_SECRET = \"<your client secret>\"\n#            Windows cmd        : set GC_CLIENT_SECRET=<your client secret>\n#            macOS / Linux      : export GC_CLIENT_SECRET='<your client secret>'\n#\n#  Step 3. Do a DRY RUN first. It signs in and checks what already exists, but creates nothing:\n#            Windows : py @@FILENAME@@ --region euw2.pure.cloud --client-id <your client id> --dry-run\n#            macOS / Linux : python3 @@FILENAME@@ --region euw2.pure.cloud --client-id <your client id> --dry-run\n#          Example client id format: 3f1c9a2e-5b7d-4e21-9a0c-8d6f2b4a1c77\n#\n#  Step 4. Happy with the dry run? Run it for real. It names the target org and asks you to confirm:\n#            Windows : py @@FILENAME@@ --region euw2.pure.cloud --client-id <your client id>\n#            macOS / Linux : python3 @@FILENAME@@ --region euw2.pure.cloud --client-id <your client id>\n#          (add --yes to skip the confirmation, for example when running it from a pipeline)\n#\n#  Step 5. Read the summary at the end. A JSON report is also saved next to the script\n#          (gc_create_report_<date>_<time>.json). The exit code is 0 when nothing failed, 1 otherwise.\n#\n#  Useful options (run with --help for the full list):\n#    --only skill,queue         only create these object types   (types: skill, wrapupcode, milestone,\n#    --skip prompt              leave these object types out      outcome, datatable, prompt, dataaction, queue)\n#    --create-divisions         create divisions that do not exist in the target (default: use Home)\n#    --integration-id <id>      put every data action under this integration in the target org\n#    --create-integrations      create a missing data actions integration (add its credentials afterwards)\n#    --no-rows                  do not add data table rows, even if the script contains them\n#\n# -----------------------------------------------------------------------------------------------------\n#  HOW IT BEHAVES\n# -----------------------------------------------------------------------------------------------------\n#    * Safe to run again: each object is looked up by name first and anything that already exists is\n#      left exactly as it is. Nothing is ever changed or deleted.\n#    * Objects are created in dependency order (skills and wrap-up codes, then milestones, outcomes, data\n#      tables, prompts, data actions and queues). Divisions are matched by name in the target org.\n#    * Rate limits (429), expired tokens and temporary server errors are retried automatically.\n#    * One failure never stops the rest. Items that need a manual follow-up are shown as NOTE lines.\n#\n#  WHAT TO EXPECT TO FINISH BY HAND\n#    * Recorded-audio prompts: only text-to-speech content is copied; upload recordings in Architect.\n#    * Data actions: credentials cannot be copied. The target needs an integration with the same name\n#      and type (or use --integration-id / --create-integrations), and its credentials added.\n#    * Queues: members and links to flows, scripts and routing rings are not copied (listed as NOTEs).\n#\n# -----------------------------------------------------------------------------------------------------\n#  IF SOMETHING GOES WRONG\n# -----------------------------------------------------------------------------------------------------\n#    \"Could not sign in ... 401\"      wrong region, client id or secret, or the client is not set to the\n#                                     Client Credentials grant.\n#    \"HTTP 403 ... missing permission\"  the role on the OAuth client lacks the permission named in the\n#                                     message, or it is not allowed to use the object's division.\n#    \"python is not recognised\"       try py (Windows) or python3 (macOS / Linux), or reinstall Python and\n#                                     tick \"Add python to PATH\".\n#    SSL or certificate errors        usually a company proxy: set HTTPS_PROXY, or ask IT to allow\n#                                     login.euw2.pure.cloud and api.euw2.pure.cloud (use your region).\n# =====================================================================================================\n\"\"\"Create the Genesys Cloud objects defined in this file in a target org, using the public API only.\nRead the comments at the top of the file for what you need and how to run it, or run it with --help.\"\"\"\n\nimport argparse\nimport base64\nimport datetime\nimport getpass\nimport json\nimport os\nimport sys\nimport time\nimport urllib.error\nimport urllib.parse\nimport urllib.request\n\n# --------------------------------------------------------------------------------------------------\n# The definitions read from the source org (edit this data if you want to change what gets created)\n# --------------------------------------------------------------------------------------------------\nDEFINITIONS = json.loads(r'''@@DEFINITIONS@@''')\n\nREGIONS = [\"mypurecloud.com\", \"use2.us-gov-pure.cloud\", \"usw2.pure.cloud\", \"cac1.pure.cloud\", \"sae1.pure.cloud\",\n           \"mypurecloud.ie\", \"euw2.pure.cloud\", \"mypurecloud.de\", \"euc2.pure.cloud\", \"mec1.pure.cloud\",\n           \"aps1.pure.cloud\", \"mypurecloud.com.au\", \"mypurecloud.jp\", \"apne2.pure.cloud\", \"apne3.pure.cloud\"]\n\n# creation order matters: later types refer to earlier ones\nORDER = [\"skill\", \"wrapupcode\", \"milestone\", \"outcome\", \"datatable\", \"prompt\", \"dataaction\", \"queue\"]\nTITLES = {\"skill\": \"Skills\", \"wrapupcode\": \"Wrap-up codes\", \"milestone\": \"Flow milestones\", \"outcome\": \"Flow outcomes\",\n          \"datatable\": \"Data tables\", \"prompt\": \"Prompts\", \"dataaction\": \"Data actions\", \"queue\": \"Queues\"}\nLIST_PATH = {\"skill\": \"/api/v2/routing/skills\", \"wrapupcode\": \"/api/v2/routing/wrapupcodes\",\n             \"milestone\": \"/api/v2/flows/milestones\", \"outcome\": \"/api/v2/flows/outcomes\",\n             \"datatable\": \"/api/v2/flows/datatables\", \"prompt\": \"/api/v2/architect/prompts\",\n             \"dataaction\": \"/api/v2/integrations/actions\", \"queue\": \"/api/v2/routing/queues\"}\n\n\nclass ApiError(Exception):\n    def __init__(self, status, body):\n        Exception.__init__(self, (\"HTTP %s: %s\" % (status, short(body))) if status else short(body))\n        self.status = status\n        self.body = body\n\n\ndef short(body, limit=300):\n    if isinstance(body, dict):\n        text = body.get(\"message\") or body.get(\"error_description\") or body.get(\"error\") or json.dumps(body)\n        if body.get(\"code\"):\n            text = \"%s (%s)\" % (text, body[\"code\"])\n    else:\n        text = str(body)\n    text = \" \".join(text.split())\n    return text if len(text) <= limit else text[:limit] + \"...\"\n\n\n# --------------------------------------------------------------------------------------------------\n# Talking to the API\n# --------------------------------------------------------------------------------------------------\nclass Client(object):\n    def __init__(self, region, client_id, client_secret, api_url=None, login_url=None):\n        self.api = (api_url or \"https://api.%s\" % region).rstrip(\"/\")\n        self.login_url = (login_url or \"https://login.%s\" % region).rstrip(\"/\")\n        self.client_id = client_id\n        self.client_secret = client_secret\n        self.token = None\n        self.calls = 0\n\n    def login(self):\n        basic = base64.b64encode((\"%s:%s\" % (self.client_id, self.client_secret)).encode(\"utf-8\")).decode(\"ascii\")\n        req = urllib.request.Request(self.login_url + \"/oauth/token\", data=b\"grant_type=client_credentials\", method=\"POST\")\n        req.add_header(\"Authorization\", \"Basic \" + basic)\n        req.add_header(\"Content-Type\", \"application/x-www-form-urlencoded\")\n        try:\n            with urllib.request.urlopen(req, timeout=60) as resp:\n                self.token = json.loads(resp.read().decode(\"utf-8\"))[\"access_token\"]\n        except urllib.error.HTTPError as err:\n            body = err.read().decode(\"utf-8\", \"replace\")\n            hint = \"\"\n            if err.code in (400, 401):\n                hint = \" Check the region, the client ID and the client secret, and that the client uses the Client Credentials grant.\"\n            raise SystemExit(\"Could not sign in to %s (HTTP %s): %s.%s\" % (self.login_url, err.code, \" \".join(body.split())[:200], hint))\n        except urllib.error.URLError as err:\n            raise SystemExit(\"Could not reach %s: %s. Check the region and your network or proxy settings.\" % (self.login_url, err.reason))\n\n    def request(self, method, path, body=None, query=None):\n        url = self.api + path + (\"?\" + urllib.parse.urlencode(query) if query else \"\")\n        data = json.dumps(body).encode(\"utf-8\") if body is not None else None\n        attempt, relogged = 0, False\n        while True:\n            attempt += 1\n            req = urllib.request.Request(url, data=data, method=method)\n            req.add_header(\"Authorization\", \"Bearer \" + self.token)\n            req.add_header(\"Accept\", \"application/json\")\n            if data is not None:\n                req.add_header(\"Content-Type\", \"application/json\")\n            try:\n                self.calls += 1\n                with urllib.request.urlopen(req, timeout=60) as resp:\n                    raw, status, headers = resp.read(), resp.status, resp.headers\n            except urllib.error.HTTPError as err:\n                raw, status, headers = err.read(), err.code, err.headers\n            except urllib.error.URLError as err:\n                if attempt < 4:\n                    time.sleep(2 * attempt)\n                    continue\n                raise ApiError(0, \"network error: %s\" % err.reason)\n            if status == 401 and not relogged:      # token expired: sign in again once\n                self.login()\n                relogged = True\n                continue\n            if status == 429 and attempt < 8:       # rate limited: wait as long as the API asks\n                try:\n                    wait = float(headers.get(\"Retry-After\") or 2)\n                except ValueError:\n                    wait = 2.0\n                time.sleep(min(wait, 60) + 0.2)\n                continue\n            if status >= 500 and attempt < 4:\n                time.sleep(2 * attempt)\n                continue\n            text = raw.decode(\"utf-8\", \"replace\")\n            try:\n                payload = json.loads(text) if text.strip() else None\n            except ValueError:\n                payload = text\n            if status >= 400:\n                raise ApiError(status, payload)\n            return payload\n\n    def get(self, path, query=None):\n        return self.request(\"GET\", path, None, query)\n\n    def post(self, path, body=None):\n        return self.request(\"POST\", path, body)\n\n\n# --------------------------------------------------------------------------------------------------\n# Shared state and helpers\n# --------------------------------------------------------------------------------------------------\nclass Ctx(object):\n    def __init__(self, client, args):\n        self.c = client\n        self.args = args\n        self.dry = args.dry_run\n        self.divisions = {}          # lower-case name -> id\n        self.home = None\n        self.ids = dict((k, {}) for k in ORDER)    # type -> lower-case name -> id in the target org\n        self.rows = []\n        self.integrations = None\n        self.current = (\"\", \"\")      # the object being processed\n        self.pending = []            # notes waiting to be printed after its result line\n\n    def say(self, kind, name, status, detail=\"\"):\n        self.rows.append({\"type\": kind, \"name\": name, \"status\": status, \"detail\": detail})\n        print(\"  [%-12s] %s%s\" % (status, name, (\"  -  \" + detail) if detail else \"\"))\n        sys.stdout.flush()\n\n\ndef note(ctx, text):\n    ctx.pending.append(text)\n\n\ndef flush_notes(ctx):\n    kind, name = ctx.current\n    for text in ctx.pending:\n        ctx.say(kind, name, \"NOTE\", text)\n    ctx.pending = []\n\n\ndef load_divisions(ctx):\n    page = 1\n    while True:\n        d = ctx.c.get(\"/api/v2/authorization/divisions\", {\"pageSize\": 100, \"pageNumber\": page}) or {}\n        for e in d.get(\"entities\", []):\n            ctx.divisions[(e.get(\"name\") or \"\").lower()] = e[\"id\"]\n            if e.get(\"homeDivision\"):\n                ctx.home = e[\"id\"]\n        if page >= d.get(\"pageCount\", 1):\n            break\n        page += 1\n    if not ctx.home:\n        try:\n            ctx.home = ctx.c.get(\"/api/v2/authorization/divisions/home\")[\"id\"]\n        except ApiError:\n            ctx.home = None\n\n\ndef division_ref(ctx, name):\n    \"\"\"Return {\"id\": ...} for a division name, using the Home division when the name does not exist here.\"\"\"\n    if not name:\n        return {\"id\": ctx.home} if ctx.home else None\n    found = ctx.divisions.get(name.lower())\n    if found:\n        return {\"id\": found}\n    if ctx.args.create_divisions and not ctx.dry:\n        made = ctx.c.post(\"/api/v2/authorization/divisions\", {\"name\": name})\n        ctx.divisions[name.lower()] = made[\"id\"]\n        ctx.say(\"division\", name, \"CREATED\")\n        return {\"id\": made[\"id\"]}\n    note(ctx, \"division '%s' not found in the target org, so the Home division is used (use --create-divisions to create it)\" % name)\n    return {\"id\": ctx.home} if ctx.home else None\n\n\ndef find(ctx, kind, name):\n    \"\"\"Find an existing object of this type by exact (case-insensitive) name, or return None.\"\"\"\n    page = 1\n    while True:\n        d = ctx.c.get(LIST_PATH[kind], {\"name\": name, \"pageSize\": 100, \"pageNumber\": page}) or {}\n        for e in d.get(\"entities\", []):\n            if (e.get(\"name\") or \"\").strip().lower() == name.strip().lower():\n                return e\n        if page >= d.get(\"pageCount\", 1):\n            return None\n        page += 1\n\n\ndef ensure(ctx, kind, item, create):\n    \"\"\"Create an object unless one with that name already exists. `create` builds and sends the request.\"\"\"\n    name = item[\"name\"]\n    ctx.current, ctx.pending = (kind, name), []\n    try:\n        existing = find(ctx, kind, name)\n        if existing:\n            ctx.ids[kind][name.lower()] = existing[\"id\"]\n            ctx.say(kind, name, \"EXISTS\", \"left unchanged\")\n            return existing[\"id\"]\n        if ctx.dry:\n            ctx.say(kind, name, \"WOULD-CREATE\")\n            return None\n        new_id = create()\n        ctx.ids[kind][name.lower()] = new_id\n        ctx.say(kind, name, \"CREATED\")\n        flush_notes(ctx)\n        return new_id\n    except ApiError as err:\n        ctx.say(kind, name, \"FAILED\", str(err))\n    except Exception as err:      # keep going: one bad object must not stop the rest\n        ctx.say(kind, name, \"FAILED\", \"%s: %s\" % (type(err).__name__, err))\n    flush_notes(ctx)\n    return None\n\n\ndef id_for(ctx, kind, name):\n    \"\"\"The target-org id of an object of this type, looking in what this run created, then in the org.\"\"\"\n    got = ctx.ids[kind].get((name or \"\").lower())\n    if got:\n        return got\n    try:\n        found = find(ctx, kind, name)\n    except ApiError:\n        found = None\n    if found:\n        ctx.ids[kind][name.lower()] = found[\"id\"]\n        return found[\"id\"]\n    return None\n\n\n# --------------------------------------------------------------------------------------------------\n# One function per object type\n# --------------------------------------------------------------------------------------------------\ndef do_skill(ctx, item):\n    ensure(ctx, \"skill\", item, lambda: ctx.c.post(\"/api/v2/routing/skills\", {\"name\": item[\"name\"]})[\"id\"])\n\n\ndef do_wrapupcode(ctx, item):\n    def create():\n        body = {\"name\": item[\"name\"]}\n        div = division_ref(ctx, item.get(\"division\"))\n        if div:\n            body[\"division\"] = div\n        return ctx.c.post(\"/api/v2/routing/wrapupcodes\", body)[\"id\"]\n    ensure(ctx, \"wrapupcode\", item, create)\n\n\ndef do_milestone(ctx, item):\n    def create():\n        body = {\"name\": item[\"name\"], \"description\": item.get(\"description\") or \"\"}\n        div = division_ref(ctx, item.get(\"division\"))\n        if div:\n            body[\"division\"] = div\n        return ctx.c.post(\"/api/v2/flows/milestones\", body)[\"id\"]\n    ensure(ctx, \"milestone\", item, create)\n\n\ndef do_outcome(ctx, item):\n    def create():\n        body = {\"name\": item[\"name\"], \"description\": item.get(\"description\") or \"\"}\n        div = division_ref(ctx, item.get(\"division\"))\n        if div:\n            body[\"division\"] = div\n        linked = []\n        for ms in item.get(\"milestones\", []):\n            mid = id_for(ctx, \"milestone\", ms)\n            if mid:\n                linked.append(mid)\n            else:\n                note(ctx, \"milestone '%s' does not exist in the target org, so it is not linked\" % ms)\n        if linked:\n            body[\"associatedFlowMilestoneIds\"] = linked\n        ctx.c.post(\"/api/v2/flows/outcomes\", body)       # outcomes are created asynchronously: wait until it shows up\n        for _ in range(30):\n            time.sleep(1)\n            made = find(ctx, \"outcome\", item[\"name\"])\n            op = (made or {}).get(\"currentOperation\") or {}\n            if made and (not op or op.get(\"complete\", True)):\n                return made[\"id\"]\n        raise ApiError(0, \"the outcome was submitted but did not appear within 30 seconds\")\n    ensure(ctx, \"outcome\", item, create)\n\n\ndef do_datatable(ctx, item):\n    def create():\n        body = {\"name\": item[\"name\"], \"description\": item.get(\"description\") or \"\", \"schema\": item[\"schema\"]}\n        div = division_ref(ctx, item.get(\"division\"))\n        if div:\n            body[\"division\"] = div\n        table_id = ctx.c.post(\"/api/v2/flows/datatables\", body)[\"id\"]\n        rows = item.get(\"rows\") or []\n        if rows and not ctx.args.no_rows:\n            done = failed = 0\n            for row in rows:\n                try:\n                    ctx.c.post(\"/api/v2/flows/datatables/%s/rows\" % urllib.parse.quote(table_id), row)\n                    done += 1\n                except ApiError:\n                    failed += 1\n                if (done + failed) % 100 == 0:\n                    print(\"      ... %d of %d rows\" % (done + failed, len(rows)))\n            note(ctx, \"rows: %d added, %d failed (of %d)\" % (done, failed, len(rows)))\n        elif item.get(\"rowCount\") and not rows:\n            note(ctx, \"rows were not included when this script was generated (%s in the source)\" % item[\"rowCount\"])\n        return table_id\n    ensure(ctx, \"datatable\", item, create)\n\n\ndef do_prompt(ctx, item):\n    def create():\n        prompt_id = ctx.c.post(\"/api/v2/architect/prompts\", {\"name\": item[\"name\"], \"description\": item.get(\"description\") or \"\"})[\"id\"]\n        for res in item.get(\"resources\", []):\n            body = {\"language\": res[\"language\"]}\n            if res.get(\"text\"):\n                body[\"text\"] = res[\"text\"]\n            if res.get(\"ttsString\"):\n                body[\"ttsString\"] = res[\"ttsString\"]\n            if len(body) == 1:\n                note(ctx, \"language %s is a recorded audio file: upload it in Architect (audio cannot be copied by this script)\" % res[\"language\"])\n                continue\n            try:\n                ctx.c.post(\"/api/v2/architect/prompts/%s/resources\" % urllib.parse.quote(prompt_id), body)\n            except ApiError as err:\n                note(ctx, \"language %s was not added: %s\" % (res[\"language\"], err))\n        return prompt_id\n    ensure(ctx, \"prompt\", item, create)\n\n\ndef load_integrations(ctx):\n    if ctx.integrations is None:\n        ctx.integrations = []\n        page = 1\n        while True:\n            d = ctx.c.get(\"/api/v2/integrations\", {\"pageSize\": 100, \"pageNumber\": page}) or {}\n            ctx.integrations.extend(d.get(\"entities\", []))\n            if page >= d.get(\"pageCount\", 1):\n                break\n            page += 1\n    return ctx.integrations\n\n\ndef target_integration(ctx, spec):\n    \"\"\"The integration in the target org that a data action should belong to.\"\"\"\n    if ctx.args.integration_id:\n        return ctx.args.integration_id\n    name, type_id = (spec.get(\"name\") or \"\").lower(), ((spec.get(\"typeId\") or \"\")).lower()\n    for e in load_integrations(ctx):\n        if (e.get(\"name\") or \"\").lower() == name and ((e.get(\"integrationType\") or {}).get(\"id\") or \"\").lower() == type_id:\n            return e[\"id\"]\n    if ctx.args.create_integrations and not ctx.dry:\n        made = ctx.c.post(\"/api/v2/integrations\", {\"integrationType\": {\"id\": spec[\"typeId\"]}})\n        try:        # give the new integration the same name; it still needs its credentials and must be activated\n            cfg = ctx.c.get(\"/api/v2/integrations/%s/config/current\" % made[\"id\"])\n            cfg[\"name\"] = spec[\"name\"]\n            ctx.c.request(\"PUT\", \"/api/v2/integrations/%s/config/current\" % made[\"id\"], cfg)\n        except ApiError as err:\n            note(ctx, \"integration was created but could not be renamed: %s\" % err)\n        ctx.integrations.append({\"id\": made[\"id\"], \"name\": spec[\"name\"], \"integrationType\": {\"id\": spec[\"typeId\"]}})\n        note(ctx, \"created integration '%s'. Add its credentials and activate it in Admin > Integrations\" % spec[\"name\"])\n        return made[\"id\"]\n    return None\n\n\ndef do_dataaction(ctx, item):\n    def create():\n        spec = item.get(\"integration\") or {}\n        integration_id = target_integration(ctx, spec)\n        if not integration_id:\n            raise ApiError(0, \"no integration named '%s' (type %s) in the target org. Create it there with its credentials, \"\n                              \"or pass --integration-id, or use --create-integrations\" % (spec.get(\"name\"), spec.get(\"typeId\")))\n        body = {\"name\": item[\"name\"], \"category\": item.get(\"category\") or spec.get(\"name\"), \"integrationId\": integration_id,\n                \"secure\": bool(item.get(\"secure\")), \"contract\": item[\"contract\"], \"config\": item[\"config\"]}\n        made = ctx.c.post(\"/api/v2/integrations/actions\", body)\n        try:        # actions start as drafts in some orgs: publish so Architect can use them\n            ctx.c.post(\"/api/v2/integrations/actions/drafts/%s/publish\" % urllib.parse.quote(made[\"id\"]), {\"version\": made.get(\"version\", 1)})\n        except ApiError as err:\n            if err.status not in (400, 404, 409):\n                note(ctx, \"created but not published: %s\" % err)\n        return made[\"id\"]\n    if ctx.dry:      # a dry run should still say whether an integration would be found\n        spec = item.get(\"integration\") or {}\n        try:\n            if not find(ctx, \"dataaction\", item[\"name\"]) and not target_integration(ctx, spec):\n                ctx.say(\"dataaction\", item[\"name\"], \"WOULD-FAIL\", \"no integration named '%s' (type %s) in the target org\" % (spec.get(\"name\"), spec.get(\"typeId\")))\n                return\n        except ApiError:\n            pass\n    ensure(ctx, \"dataaction\", item, create)\n\n\ndef do_queue(ctx, item):\n    def create():\n        body = dict(item.get(\"settings\") or {})\n        body[\"name\"] = item[\"name\"]\n        div = division_ref(ctx, item.get(\"division\"))\n        if div:\n            body[\"division\"] = div\n        queue_id = ctx.c.post(\"/api/v2/routing/queues\", body)[\"id\"]\n        codes = []\n        for code in item.get(\"wrapupcodes\", []):\n            cid = id_for(ctx, \"wrapupcode\", code)\n            if cid:\n                codes.append({\"id\": cid})\n            else:\n                note(ctx, \"wrap-up code '%s' does not exist in the target org, so it was not attached\" % code)\n        if codes:\n            try:\n                ctx.c.post(\"/api/v2/routing/queues/%s/wrapupcodes\" % urllib.parse.quote(queue_id), codes)\n            except ApiError as err:\n                note(ctx, \"wrap-up codes were not attached: %s\" % err)\n        for left_out in item.get(\"notCopied\", []):\n            note(ctx, \"not copied: \" + left_out)\n        return queue_id\n    ensure(ctx, \"queue\", item, create)\n\n\nHANDLERS = {\"skill\": do_skill, \"wrapupcode\": do_wrapupcode, \"milestone\": do_milestone, \"outcome\": do_outcome,\n            \"datatable\": do_datatable, \"prompt\": do_prompt, \"dataaction\": do_dataaction, \"queue\": do_queue}\n\n\n# --------------------------------------------------------------------------------------------------\n# Command line\n# --------------------------------------------------------------------------------------------------\ndef parse_args(argv):\n    kinds = \", \".join(ORDER)\n    p = argparse.ArgumentParser(description=\"Create the objects in this file in a Genesys Cloud org using the API only.\",\n                                formatter_class=argparse.RawDescriptionHelpFormatter,\n                                epilog=\"Regions: \" + \", \".join(REGIONS) + \"\\nObject types for --only / --skip: \" + kinds)\n    p.add_argument(\"--region\", help=\"target org region (the part after 'login.', for example mypurecloud.ie)\")\n    p.add_argument(\"--client-id\", default=os.environ.get(\"GC_CLIENT_ID\"), help=\"client-credentials OAuth client ID in the target org (or env GC_CLIENT_ID)\")\n    p.add_argument(\"--client-secret\", default=os.environ.get(\"GC_CLIENT_SECRET\"), help=\"its secret (or env GC_CLIENT_SECRET; asked for if missing)\")\n    p.add_argument(\"--dry-run\", action=\"store_true\", help=\"check what exists and say what would be created, without creating anything\")\n    p.add_argument(\"--yes\", action=\"store_true\", help=\"do not ask for confirmation before creating\")\n    p.add_argument(\"--only\", help=\"comma-separated object types to process, default all\")\n    p.add_argument(\"--skip\", help=\"comma-separated object types to leave out\")\n    p.add_argument(\"--create-divisions\", action=\"store_true\", help=\"create divisions that do not exist in the target org (default: use Home)\")\n    p.add_argument(\"--integration-id\", help=\"put every data action under this target integration ID\")\n    p.add_argument(\"--create-integrations\", action=\"store_true\", help=\"create a missing data actions integration (you add its credentials afterwards)\")\n    p.add_argument(\"--no-rows\", action=\"store_true\", help=\"do not add data table rows, even if they are included\")\n    p.add_argument(\"--report\", help=\"where to save the JSON report (default: gc_create_report_<time>.json)\")\n    p.add_argument(\"--api-url\", help=\"advanced: API base URL if it is not https://api.<region>\")\n    p.add_argument(\"--login-url\", help=\"advanced: login base URL if it is not https://login.<region>\")\n    return p.parse_args(argv)\n\n\ndef main(argv=None):\n    try:        # never crash on a name the console cannot show\n        sys.stdout.reconfigure(errors=\"replace\")\n    except Exception:\n        pass\n    args = parse_args(argv)\n    meta = DEFINITIONS.get(\"meta\", {})\n    only = set(x.strip() for x in (args.only or \"\").split(\",\") if x.strip())\n    skip = set(x.strip() for x in (args.skip or \"\").split(\",\") if x.strip())\n    unknown = (only | skip) - set(ORDER)\n    if unknown:\n        raise SystemExit(\"Unknown object type(s): %s. Use: %s\" % (\", \".join(sorted(unknown)), \", \".join(ORDER)))\n    kinds = [k for k in ORDER if DEFINITIONS.get(k) and (not only or k in only) and k not in skip]\n    total = sum(len(DEFINITIONS[k]) for k in kinds)\n    print(\"Genesys Cloud object creation script\")\n    print(\"  built from : %s (%s), flow %s\" % (meta.get(\"sourceOrg\", \"?\"), meta.get(\"sourceRegion\", \"?\"), meta.get(\"flow\", \"?\")))\n    print(\"  objects    : %d (%s)\" % (total, \", \".join(\"%d %s\" % (len(DEFINITIONS[k]), TITLES[k].lower()) for k in kinds) or \"none\"))\n    if not total:\n        raise SystemExit(\"Nothing to do.\")\n\n    region = args.region or (input(\"Target region (for example mypurecloud.ie): \").strip() if sys.stdin.isatty() else \"\")\n    if not region and not args.api_url:\n        raise SystemExit(\"Please give the target region with --region.\")\n    if region and region not in REGIONS:\n        print(\"  note: '%s' is not one of the known regions, using it as given.\" % region)\n    client_id = args.client_id or (input(\"Client ID: \").strip() if sys.stdin.isatty() else \"\")\n    secret = args.client_secret or (getpass.getpass(\"Client secret (hidden): \") if sys.stdin.isatty() else \"\")\n    if not client_id or not secret:\n        raise SystemExit(\"A client ID and secret are needed (--client-id, and --client-secret or GC_CLIENT_SECRET).\")\n\n    client = Client(region, client_id, secret, args.api_url, args.login_url)\n    client.login()\n    try:\n        org = client.get(\"/api/v2/organizations/me\") or {}\n    except ApiError:\n        org = {}\n    print(\"  target org : %s%s\" % (org.get(\"thirdPartyOrgName\") or org.get(\"name\") or \"(unknown)\", \"   [DRY RUN, nothing will be created]\" if args.dry_run else \"\"))\n    if not args.dry_run and not args.yes:\n        if not sys.stdin.isatty():\n            raise SystemExit(\"Not running in a terminal: add --yes to confirm, or --dry-run.\")\n        if input(\"Create the objects above in this org? [y/N] \").strip().lower() not in (\"y\", \"yes\"):\n            raise SystemExit(\"Cancelled.\")\n\n    ctx = Ctx(client, args)\n    load_divisions(ctx)\n    started = time.time()\n    for kind in kinds:\n        print(\"\\n%s (%d)\" % (TITLES[kind], len(DEFINITIONS[kind])))\n        for item in DEFINITIONS[kind]:\n            HANDLERS[kind](ctx, item)\n\n    counts = {}\n    for r in ctx.rows:\n        if r[\"status\"] != \"NOTE\":\n            counts[r[\"status\"]] = counts.get(r[\"status\"], 0) + 1\n    print(\"\\nSummary (%.0f s, %d API calls)\" % (time.time() - started, client.calls))\n    for status in (\"CREATED\", \"WOULD-CREATE\", \"EXISTS\", \"WOULD-FAIL\", \"FAILED\"):\n        if counts.get(status):\n            print(\"  %-13s %d\" % (status, counts[status]))\n    notes = [r for r in ctx.rows if r[\"status\"] == \"NOTE\"]\n    if notes:\n        print(\"  %-13s %d  (see above; they need a manual follow-up)\" % (\"NOTES\", len(notes)))\n    path = args.report or \"gc_create_report_%s.json\" % datetime.datetime.now().strftime(\"%Y%m%d_%H%M%S\")\n    try:\n        with open(path, \"w\") as fh:\n            json.dump({\"meta\": meta, \"targetRegion\": region, \"dryRun\": args.dry_run, \"results\": ctx.rows}, fh, indent=1)\n        print(\"  report saved: %s\" % path)\n    except OSError as err:\n        print(\"  (could not save the report: %s)\" % err)\n    return 1 if (counts.get(\"FAILED\") or counts.get(\"WOULD-FAIL\")) else 0\n\n\nif __name__ == \"__main__\":\n    try:\n        sys.exit(main())\n    except KeyboardInterrupt:\n        print(\"\\nStopped.\")\n        sys.exit(130)\n";
+// dependency group (as shown in the list) -> object type the script knows how to create
+const API_TYPES = { 'Skills': 'skill', 'Wrap-up Codes': 'wrapupcode', 'Milestones': 'milestone', 'Outcomes': 'outcome', 'Data Tables': 'datatable', 'Prompts': 'prompt', 'Data Actions': 'dataaction', 'Queues': 'queue' };
+const MAX_TABLE_ROWS = 10000;
+const apiEnc = (x) => encodeURIComponent(x);
+const apiDiv = (d) => (d && d.name) || '';
+
+// One reader per object type: fetch the object's definition from THIS (source) org and keep only what the script needs.
+const API_READERS = {
+  skill: async (it) => { const d = await api(`/api/v2/routing/skills/${apiEnc(it.id)}`); return { name: d.name }; },
+  wrapupcode: async (it) => { const d = await api(`/api/v2/routing/wrapupcodes/${apiEnc(it.id)}`); return { name: d.name, division: apiDiv(d.division) }; },
+  milestone: async (it, x) => { const d = await api(`/api/v2/flows/milestones/${apiEnc(it.id)}`); x.milestoneNames.set(d.id || it.id, d.name); return { name: d.name, description: d.description || '', division: apiDiv(d.division) }; },
+  outcome: async (it, x) => {
+    const d = await api(`/api/v2/flows/outcomes/${apiEnc(it.id)}`); const names = [];
+    for (const mid of d.associatedFlowMilestoneIds || []) {
+      if (!x.milestoneNames.has(mid)) { try { x.milestoneNames.set(mid, (await api(`/api/v2/flows/milestones/${apiEnc(mid)}`)).name); } catch (e) { x.milestoneNames.set(mid, ''); } }
+      if (x.milestoneNames.get(mid)) names.push(x.milestoneNames.get(mid));
+    }
+    return { name: d.name, description: d.description || '', division: apiDiv(d.division), milestones: names };
+  },
+  datatable: async (it, x) => {
+    const d = await api(`/api/v2/flows/datatables/${apiEnc(it.id)}?expand=schema`);
+    const out = { name: d.name, description: d.description || '', division: apiDiv(d.division), schema: d.schema };
+    const first = await api(`/api/v2/flows/datatables/${apiEnc(it.id)}/rows?pageSize=1&pageNumber=1&showbrief=false`);
+    out.rowCount = first && first.total != null ? first.total : (first && first.entities ? first.entities.length : 0);
+    if (x.rows && out.rowCount) {
+      const rows = [];
+      for (let page = 1; rows.length < MAX_TABLE_ROWS; page++) {
+        const r = await api(`/api/v2/flows/datatables/${apiEnc(it.id)}/rows?pageSize=500&pageNumber=${page}&showbrief=false`);
+        rows.push(...(r.entities || [])); if (page >= (r.pageCount || 1)) break;
+      }
+      if (rows.length >= MAX_TABLE_ROWS) x.warnings.push(`Data table "${d.name}" has ${out.rowCount} rows; only the first ${MAX_TABLE_ROWS} are in the script.`);
+      out.rows = rows.slice(0, MAX_TABLE_ROWS);
+    }
+    return out;
+  },
+  prompt: async (it) => {
+    const d = await api(`/api/v2/architect/prompts/${apiEnc(it.id)}`);
+    return { name: d.name, description: d.description || '', resources: (d.resources || []).map((r) => ({ language: r.language, text: r.text || '', ttsString: r.ttsString || '' })) };
+  },
+  dataaction: async (it) => {
+    const d = await api(`/api/v2/integrations/actions/${apiEnc(it.id)}?expand=contract&includeConfig=true`);
+    const cfg = JSON.parse(JSON.stringify(d.config || {}));
+    const template = async (uri) => { const t = await api(String(uri).replace(/^https?:\/\/[^/]+/, '')); return typeof t === 'string' ? t : JSON.stringify(t); };
+    // the action stores its templates separately; copy their text into the definition (this is also what CX as Code does)
+    if (cfg.request && cfg.request.requestTemplateUri) { cfg.request.requestTemplate = await template(cfg.request.requestTemplateUri); delete cfg.request.requestTemplateUri; }
+    if (cfg.response && cfg.response.successTemplateUri) { cfg.response.successTemplate = await template(cfg.response.successTemplateUri); delete cfg.response.successTemplateUri; }
+    const integ = d.integrationId ? await api(`/api/v2/integrations/${apiEnc(d.integrationId)}`) : null;
+    return { name: d.name, category: d.category || '', secure: !!d.secure,
+      integration: { name: (integ && integ.name) || d.category || '', typeId: (integ && integ.integrationType && integ.integrationType.id) || '' },
+      contract: d.contract || {}, config: cfg };
+  },
+  queue: async (it) => {
+    const d = await api(`/api/v2/routing/queues/${apiEnc(it.id)}`);
+    // only copy settings that do not point at other objects; anything that does is listed for manual follow-up
+    const KEEP = ['description', 'mediaSettings', 'routingRules', 'acwSettings', 'skillEvaluationMethod', 'autoAnswerOnly', 'enableTranscription', 'enableAudioMonitoring', 'enableManualAssignment', 'agentOwnedRouting', 'suppressInQueueCallRecording', 'callingPartyName'];
+    const settings = {}; KEEP.forEach((k) => { if (d[k] !== undefined && d[k] !== null) settings[k] = d[k]; });
+    const left = [];
+    [['queueFlow', 'in-queue call flow'], ['emailInQueueFlow', 'in-queue email flow'], ['messageInQueueFlow', 'in-queue message flow'], ['whisperPrompt', 'whisper prompt'], ['onHoldPrompt', 'on-hold prompt']]
+      .forEach(([k, label]) => { if (d[k]) left.push(`${label} '${d[k].name || d[k].id}' (re-link it in the target org)`); });
+    if ((d.defaultScripts && Object.keys(d.defaultScripts).length) || (d.scripts && d.scripts.length)) left.push('default scripts');
+    if (d.bullseye && (d.bullseye.rings || []).length) left.push('bullseye routing rings');
+    if (d.conditionalGroupRouting && (d.conditionalGroupRouting.rules || []).length) left.push('conditional group routing');
+    if (d.directRouting) left.push('direct routing settings');
+    if (d.memberCount) left.push(`${d.memberCount} queue member(s)`);
+    let codes = []; try { codes = ((await api(`/api/v2/routing/queues/${apiEnc(it.id)}/wrapupcodes?pageSize=100`)).entities || []).map((c) => c.name); } catch (e) { /* optional */ }
+    return { name: d.name, description: d.description || '', division: apiDiv(d.division), settings, wrapupcodes: codes, notCopied: left };
+  },
+};
+
+// Read every ticked, supported object of one flow from THIS org. The result feeds both the Python script and the Postman collection.
+async function readApiDefinitions(flow, cfg, opts, onProgress) {
+  const entry = ensureDeps(flow, cfg);
+  const groups = selectedGroups(entry);
+  const supported = groups.filter((g) => API_TYPES[g.label]), unsupported = groups.filter((g) => !API_TYPES[g.label]);
+  const total = supported.reduce((n, g) => n + g.items.length, 0);
+  const defs = { meta: { sourceOrg: S.org || '', sourceRegion: S.domain || '', flow: flow.name, flowType: flow.type, generatedAt: new Date().toISOString() } };
+  const x = { rows: !!opts.rows, warnings: [], milestoneNames: new Map() };
+  const counts = []; let done = 0;
+  // milestones are read before outcomes so an outcome can name the milestones it is linked to
+  supported.sort((a, b) => ['Milestones'].indexOf(b.label) - ['Milestones'].indexOf(a.label));
+  for (const g of supported) {
+    const key = API_TYPES[g.label]; defs[key] = [];
+    for (const it of g.items) {
+      onProgress(`Reading ${++done} of ${total}: ${g.label} › ${it.name}`);
+      try { defs[key].push(await API_READERS[key](it, x)); }
+      catch (e) { x.warnings.push(`${g.label} › ${it.name}: could not be read (${e.status ? 'HTTP ' + e.status + ': ' : ''}${e.message}), so it is not included.`); }
+    }
+    counts.push([g.label, defs[key].length]);
+  }
+  const made = counts.reduce((n, [, c]) => n + c, 0);
+  return { defs, made, counts, warnings: x.warnings, notIncluded: unsupported.map((g) => `${g.label} (${g.items.length})`) };
+}
+
+// Permissions the OAuth client's role needs, for the object types that are actually in the export (shown in the file's comments).
+const API_PERMS = {
+  skill: ['Routing > Skill > Add, View'], wrapupcode: ['Routing > Wrap-up Code > Add, View'],
+  milestone: ['Architect > Flow Milestone > Add, View, Search'], outcome: ['Architect > Flow Outcome > Add, View, Search'],
+  datatable: ['Architect > Datatable > Add, View, Search'], prompt: ['Architect > User Prompt > Add, View'],
+  dataaction: ['Integrations > Action > Add, View', 'Integrations > Integration > View (and Add, Edit if a missing integration is to be created)'],
+  queue: ['Routing > Queue > Add, View, Search'],
+};
+function apiPermissions(defs) {
+  const lines = ['Authorization > Division > View (to find divisions by name)'];
+  Object.keys(API_PERMS).forEach((k) => { if ((defs[k] || []).length) API_PERMS[k].forEach((p) => lines.push(p)); });
+  if ((defs.datatable || []).some((t) => (t.rows || []).length)) lines.push('Architect > Datatable Row > Add (the data table rows are in this export)');
+  return lines;
+}
+const apiSafe = (s) => String(s).replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '/').replace(/"""/g, "'''");
+
+function renderApiScript(defs, counts, filename) {
+  const json = JSON.stringify(defs, null, 1)
+    .replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))    // keep the file plain ASCII
+    .replace(/'/g, '\\u0027');                                                                      // the data sits inside a '''...''' string
+  const lines = (arr, indent) => arr.map((t) => `#${indent}${apiSafe(t)}`).join('\n');
+  const fill = { '@@SOURCE_ORG@@': apiSafe(defs.meta.sourceOrg || 'unknown'), '@@SOURCE_REGION@@': apiSafe(defs.meta.sourceRegion || 'unknown'), '@@FLOW@@': apiSafe(defs.meta.flow),
+    '@@GENERATED@@': apiSafe(defs.meta.generatedAt), '@@FILENAME@@': apiSafe(filename),
+    '@@SUMMARY@@': lines(counts.filter(([, c]) => c).map(([l, c]) => `* ${l}: ${c}`), '    '),
+    '@@PERMISSIONS@@': lines(apiPermissions(defs).map((p) => '- ' + p), '       '),
+    '@@DEFINITIONS@@': json };
+  let out = API_TEMPLATE;
+  for (const [k, v] of Object.entries(fill)) out = out.split(k).join(v);       // split/join: no special replacement patterns
+  return out;
+}
+
+/* ---------- raw API calls as a Postman collection (v2.1), also importable into Insomnia, Bruno, Hoppscotch... ---------- */
+const PM_SECTIONS = [['skill', 'Skills', 'skill'], ['wrapupcode', 'Wrap-up codes', 'wrap-up code'], ['milestone', 'Flow milestones', 'flow milestone'], ['outcome', 'Flow outcomes', 'flow outcome'],
+  ['datatable', 'Data tables', 'data table'], ['prompt', 'Prompts', 'prompt'], ['dataaction', 'Data actions', 'data action'], ['queue', 'Queues', 'queue']];
+const PM_MAX_ROWS = 100;
+function renderPostman(defs, counts) {
+  const slug = (x) => String(x).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'x';
+  const BASE = 'https://api.{{region}}', notes = [];
+  const hdr = [{ key: 'Content-Type', value: 'application/json' }, { key: 'Accept', value: 'application/json' }];
+  const test = (lines) => [{ listen: 'test', script: { type: 'text/javascript', exec: lines } }];
+  const call = (name, method, path, body, lines, description) => {
+    const r = { name, request: { method, header: hdr, url: BASE + path, description: description || '' }, event: lines ? test(lines) : [] };
+    if (body !== undefined) r.request.body = { mode: 'raw', raw: JSON.stringify(body, null, 2), options: { raw: { language: 'json' } } };
+    return r;
+  };
+  // after a create call: check the status and keep the new id in a collection variable for the calls that depend on it
+  const created = (what, v) => [
+    `pm.test(${JSON.stringify(what + ': created')}, function () { pm.expect(pm.response.code).to.be.oneOf([200, 201, 202]); });`,
+    v ? `if (pm.response.code >= 200 && pm.response.code < 300) { var j = pm.response.json(); if (j && j.id) { pm.collectionVariables.set(${JSON.stringify(v)}, j.id); } }` : '',
+    `if (pm.response.code >= 300) { console.warn(${JSON.stringify(what)} + ' failed: ' + pm.response.code + ' ' + pm.response.text()); }`,
+  ].filter(Boolean);
+  const divNames = new Set(); const divVar = (n) => { if (!n) return '{{div_home}}'; divNames.add(n); return `{{div_${slug(n)}}}`; };
+  const idOf = { skill: new Map(), wrapupcode: new Map(), milestone: new Map() };      // name -> variable that will hold the new id
+  const integ = new Map();                                                              // "name|type" -> variable
+
+  const folders = [];
+  PM_SECTIONS.forEach(([key, title, singular]) => {
+    const list = defs[key] || []; if (!list.length) return;
+    const items = [];
+    list.forEach((o, i) => {
+      const v = `${key}_${i + 1}_id`; const label = `Create ${singular}: ${o.name}`;
+      if (idOf[key]) idOf[key].set(o.name.toLowerCase(), v);
+      if (key === 'skill') items.push(call(label, 'POST', '/api/v2/routing/skills', { name: o.name }, created(label, v)));
+      else if (key === 'wrapupcode') items.push(call(label, 'POST', '/api/v2/routing/wrapupcodes', { name: o.name, division: { id: divVar(o.division) } }, created(label, v)));
+      else if (key === 'milestone') items.push(call(label, 'POST', '/api/v2/flows/milestones', { name: o.name, description: o.description || '', division: { id: divVar(o.division) } }, created(label, v)));
+      else if (key === 'outcome') {
+        const ids = [], missing = [];
+        (o.milestones || []).forEach((m) => (idOf.milestone.has(m.toLowerCase()) ? ids.push(`{{${idOf.milestone.get(m.toLowerCase())}}}`) : missing.push(m)));
+        const body = { name: o.name, description: o.description || '', division: { id: divVar(o.division) } }; if (ids.length) body.associatedFlowMilestoneIds = ids;
+        items.push(call(label, 'POST', '/api/v2/flows/outcomes', body, created(label, ''),
+          'Outcomes are created asynchronously, so a 202 response is normal.' + (missing.length ? ` Not linked (not in this export): ${missing.join(', ')}.` : '')));
+      } else if (key === 'datatable') {
+        items.push(call(label, 'POST', '/api/v2/flows/datatables', { name: o.name, description: o.description || '', division: { id: divVar(o.division) }, schema: o.schema }, created(label, v)));
+        const rows = o.rows || [];
+        if (rows.length && rows.length <= PM_MAX_ROWS) rows.forEach((r, k) => items.push(call(`  Add row ${k + 1} of ${rows.length} to ${o.name}`, 'POST', `/api/v2/flows/datatables/{{${v}}}/rows`, r, created(`row ${k + 1}`, ''))));
+        else if (rows.length) notes.push(`Data table "${o.name}" has ${rows.length} rows, too many to list as separate requests here (limit ${PM_MAX_ROWS}). Use the Python script for its rows.`);
+        else if (o.rowCount) notes.push(`Data table "${o.name}": its ${o.rowCount} rows are not included.`);
+      } else if (key === 'prompt') {
+        items.push(call(label, 'POST', '/api/v2/architect/prompts', { name: o.name, description: o.description || '' }, created(label, v)));
+        (o.resources || []).forEach((r) => {
+          if (r.text || r.ttsString) items.push(call(`  Add ${r.language} text to ${o.name}`, 'POST', `/api/v2/architect/prompts/{{${v}}}/resources`, Object.assign({ language: r.language }, r.text ? { text: r.text } : {}, r.ttsString ? { ttsString: r.ttsString } : {}), created(`${r.language} resource`, '')));
+          else notes.push(`Prompt "${o.name}", language ${r.language}, is a recorded audio file: upload it in Architect.`);
+        });
+      } else if (key === 'dataaction') {
+        const sp = o.integration || {}, ik = `${sp.name}|${sp.typeId}`;
+        if (!integ.has(ik)) integ.set(ik, { v: `int_${integ.size + 1}_id`, name: sp.name || '', typeId: sp.typeId || '' });
+        const iv = integ.get(ik).v;
+        items.push(call(label, 'POST', '/api/v2/integrations/actions', { name: o.name, category: o.category || sp.name || '', integrationId: `{{${iv}}}`, secure: !!o.secure, contract: o.contract, config: o.config }, created(label, v),
+          `Needs the integration "${sp.name}" (type ${sp.typeId}) to exist in the target org. It is looked up in the Setup folder.`));
+        items.push(call(`  Publish ${o.name}`, 'POST', `/api/v2/integrations/actions/drafts/{{${v}}}/publish`, { version: 1 }, ['pm.test("published or already published", function () { pm.expect(pm.response.code).to.be.oneOf([200, 400, 404, 409]); });'],
+          'Some orgs create actions as drafts. A 400, 404 or 409 here usually means the action was already published.'));
+      } else if (key === 'queue') {
+        const body = Object.assign({}, o.settings || {}, { name: o.name, description: o.description || '', division: { id: divVar(o.division) } });
+        items.push(call(label, 'POST', '/api/v2/routing/queues', body, created(label, v), (o.notCopied || []).length ? 'Not copied: ' + o.notCopied.join('; ') + '.' : ''));
+        const codes = (o.wrapupcodes || []).filter((c) => idOf.wrapupcode.has(c.toLowerCase())).map((c) => ({ id: `{{${idOf.wrapupcode.get(c.toLowerCase())}}}` }));
+        const lost = (o.wrapupcodes || []).filter((c) => !idOf.wrapupcode.has(c.toLowerCase()));
+        if (codes.length) items.push(call(`  Attach wrap-up codes to ${o.name}`, 'POST', `/api/v2/routing/queues/{{${v}}}/wrapupcodes`, codes, created('wrap-up codes', '')));
+        if (lost.length) notes.push(`Queue "${o.name}": wrap-up codes not in this export, so not attached: ${lost.join(', ')}.`);
+      }
+    });
+    folders.push({ name: `${folders.length + 1}. ${title}`, item: items });
+  });
+
+  // folder 0: sign in and find the ids that differ between orgs (divisions, integrations)
+  const needDiv = [...divNames];
+  const setup = [
+    call('Get access token', 'POST', '', undefined, [
+      'pm.test("signed in", function () { pm.expect(pm.response.code).to.eql(200); });',
+      'if (pm.response.code === 200) { pm.collectionVariables.set("token", pm.response.json().access_token); }',
+    ], 'Signs in with the OAuth client (Client Credentials). Uses the clientId, clientSecret and region collection variables.'),
+    call('Find divisions', 'GET', '/api/v2/authorization/divisions?pageSize=100', undefined, [
+      'var d = pm.response.json(), list = d.entities || [], home = list.find(function (x) { return x.homeDivision; });',
+      'pm.collectionVariables.set("div_home", home ? home.id : "");',
+      'list.forEach(function (x) { pm.collectionVariables.set("div_" + x.name.replace(/[^A-Za-z0-9]+/g, "_"), x.id); });',
+      `${JSON.stringify(needDiv)}.forEach(function (n) { var k = "div_" + n.replace(/[^A-Za-z0-9]+/g, "_"); if (!pm.collectionVariables.get(k)) { pm.collectionVariables.set(k, home ? home.id : ""); console.warn("Division " + n + " was not found, so the Home division is used."); } });`,
+    ], 'Looks up the divisions of the target org by name. A division that does not exist there falls back to the Home division.')];
+  setup[0].request.url = 'https://login.{{region}}/oauth/token';
+  setup[0].request.header = [{ key: 'Content-Type', value: 'application/x-www-form-urlencoded' }];
+  setup[0].request.body = { mode: 'urlencoded', urlencoded: [{ key: 'grant_type', value: 'client_credentials' }] };
+  setup[0].request.auth = { type: 'basic', basic: [{ key: 'username', value: '{{clientId}}', type: 'string' }, { key: 'password', value: '{{clientSecret}}', type: 'string' }] };
+  if (integ.size) {
+    const specs = [...integ.values()];
+    setup.push(call('Find integrations', 'GET', '/api/v2/integrations?pageSize=100', undefined, [
+      'var list = (pm.response.json().entities || []);',
+      `${JSON.stringify(specs.map((i) => ({ v: i.v, name: i.name, typeId: i.typeId })))}.forEach(function (s) {`,
+      '  var hit = list.find(function (e) { return (e.name || "").toLowerCase() === s.name.toLowerCase() && ((e.integrationType || {}).id || "").toLowerCase() === s.typeId.toLowerCase(); });',
+      '  if (hit) { pm.collectionVariables.set(s.v, hit.id); } else { console.warn("No integration named " + s.name + " (" + s.typeId + ") in the target org. Create it, with its credentials, before running the data action requests."); }',
+      '});',
+    ], 'Finds the integrations the data actions belong to, by name and type, in the target org.'));
+  }
+  folders.unshift({ name: '0. Setup (run first)', item: setup });
+
+  const perm = apiPermissions(defs).map((p) => `- ${p}`).join('\n');
+  const desc = [
+    `# Create objects from "${defs.meta.flow}"`, '',
+    `Raw Genesys Cloud API calls that create the objects ticked in the Flow Exporter, built from ${apiSafe(defs.meta.sourceOrg || 'the source org')} (${apiSafe(defs.meta.sourceRegion || '')}) on ${apiSafe(defs.meta.generatedAt)}.`, '',
+    '## What you need', '',
+    '1. Postman (or a tool that imports Postman collections, such as Insomnia or Bruno). The requests use small Postman scripts to pass new ids from one call to the next, so Postman or Bruno gives the best result.',
+    '2. An OAuth client in the TARGET org: **Admin > Integrations > OAuth > Add Client**, grant type **Client Credentials**, with a role that has the permissions below and access to **all divisions**. Copy its Client ID and Secret.',
+    '3. A role with these permissions:', '', perm, '',
+    '## How to run it (example: London region, euw2.pure.cloud)', '',
+    'The region is the part of your sign-in address after `login.`. For `https://login.euw2.pure.cloud` it is **euw2.pure.cloud**.', '',
+    '1. Set the collection variables (Variables tab): `region` = `euw2.pure.cloud`, `clientId` = your client ID, `clientSecret` = your secret. Put the secret in the **Current value** column so it is not shared.',
+    "2. Run the folder **0. Setup** first (or the whole collection with the Collection Runner, in order). It signs in and looks up the target org's divisions and integrations.",
+    '3. Run the other folders in order. Each create call stores the new id in a collection variable for the calls that follow.',
+    '4. Check the Test Results of each call. Anything that failed is explained in the response body and the Postman console.', '',
+    '## Good to know', '',
+    '- These are plain create calls. Unlike the Python script they do not check whether an object already exists, so running them twice gives errors (usually 400 or 409) for objects that are already there.',
+    '- Skip any call you do not want. Calls that depend on an earlier one (rows, resources, wrap-up codes) need that earlier call to have run.',
+    '- Data actions need an integration with the same name and type in the target org, with its credentials set up.',
+    notes.length ? '\n## Not included or needs a manual step\n\n' + notes.map((n) => `- ${apiSafe(n)}`).join('\n') : '',
+  ].join('\n');
+  return JSON.stringify({
+    info: { _postman_id: (self.crypto && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-4000-8000-000000000000'), name: `Create objects: ${defs.meta.flow}`, description: desc, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+    auth: { type: 'bearer', bearer: [{ key: 'token', value: '{{token}}', type: 'string' }] },
+    variable: [{ key: 'region', value: 'euw2.pure.cloud' }, { key: 'clientId', value: '' }, { key: 'clientSecret', value: '' }, { key: 'token', value: '' }],
+    item: folders,
+  }, null, 2);
+}
+
+/* ---------- the dialog ---------- */
+function apiDialog() {
+  let el = $('apiDlg'); if (el) return el;
+  el = document.createElement('div'); el.id = 'apiDlg'; el.className = 'dlg'; el.hidden = true;
+  el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'apiDlgT');
+  el.innerHTML = `<div class="dlg-box" tabindex="-1">
+    <h2 id="apiDlgT">Create API script</h2>
+    <p class="dlg-lead">Builds a script that creates the ticked objects in another org using the Genesys Cloud API only. It reads each object from this org now, so the script itself never needs access to it.</p>
+    <div id="apiSum" class="dlg-sum" aria-live="polite"></div>
+    <fieldset class="dlg-fmt"><legend>What to build</legend>
+      <label class="dlg-opt"><input type="checkbox" id="apiFmtPy" checked><span>Python 3 script<small>Runs on Windows, macOS or Linux. Skips anything that already exists, with a dry-run mode. The top of the file explains how to run it.</small></span></label>
+      <label class="dlg-opt"><input type="checkbox" id="apiFmtPm"><span>Raw API calls (Postman collection)<small>The same calls as plain requests, to run one by one or with the Collection Runner. Also imports into Insomnia, Bruno and similar tools.</small></span></label>
+    </fieldset>
+    <label class="dlg-opt"><input type="checkbox" id="apiRows"><span>Include data table rows<small>Adds the rows (up to ${MAX_TABLE_ROWS.toLocaleString()} per table in the script; the Postman collection lists up to ${PM_MAX_ROWS} per table).</small></span></label>
+    <div id="apiProg" class="dlg-prog" aria-live="polite"></div>
+    <div id="apiWarn" class="dlg-warn"></div>
+    <div class="dlg-btns"><button class="btn primary" id="apiGo" type="button">Build</button><button class="btn" id="apiClose" type="button">Close</button></div>
+  </div>`;
+  document.body.appendChild(el);
+  $('apiClose').addEventListener('click', closeApiDialog);
+  $('apiGo').addEventListener('click', runApiBuild);
+  const syncGo = () => { if (!S.apiBusy) $('apiGo').disabled = !(S.apiPlan || []).some((p) => p.supported.length) || !($('apiFmtPy').checked || $('apiFmtPm').checked); };
+  $('apiFmtPy').addEventListener('change', syncGo); $('apiFmtPm').addEventListener('change', syncGo); el.syncGo = syncGo;
+  el.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !S.apiBusy) closeApiDialog(); });
+  el.addEventListener('click', (e) => { if (e.target === el && !S.apiBusy) closeApiDialog(); });
+  return el;
+}
+function closeApiDialog() { const el = $('apiDlg'); if (el) el.hidden = true; document.body.style.overflow = ''; const b = $('apiBtn'); if (b) b.focus(); }
+
+async function openApiDialog() {
+  const flows = S.flows.filter((f) => S.selected.has(f.id)); if (!flows.length) return;
+  const el = apiDialog(); el.hidden = false; document.body.style.overflow = 'hidden';
+  $('apiWarn').innerHTML = ''; $('apiProg').textContent = ''; $('apiGo').disabled = true; $('apiSum').innerHTML = '<span class="spinner"></span>Checking your selection…'; el.querySelector('.dlg-box').focus();
+  S.apiPlan = [];
+  try {
+    for (const f of flows) {
+      const cfg = await configFor(f); const entry = ensureDeps(f, cfg);
+      const groups = entry.groups ? selectedGroups(entry) : [];
+      S.apiPlan.push({ flow: f, cfg, supported: groups.filter((g) => API_TYPES[g.label]).map((g) => [g.label, g.items.length]), unsupported: groups.filter((g) => !API_TYPES[g.label]).map((g) => [g.label, g.items.length]), error: entry.error || '' });
+    }
+  } catch (e) { $('apiSum').textContent = ''; $('apiWarn').innerHTML = `<div class="msg error">${esc('The flow configuration could not be read: ' + e.message)}</div>`; return; }
+  const parts = S.apiPlan.map((p) => {
+    const n = p.supported.reduce((a, [, c]) => a + c, 0);
+    return `<div class="dlg-flow"><strong>${esc(p.flow.name)}</strong>` + (n ? `<div>${p.supported.map(([l, c]) => `${c} ${esc(l)}`).join(' · ')}</div>` : '<div class="dlg-none">None of the ticked objects can be created by script.</div>') +
+      (p.unsupported.length ? `<div class="dlg-skip">Not included: ${p.unsupported.map(([l, c]) => `${esc(l)} (${c})`).join(', ')}</div>` : '') + `</div>`;
+  });
+  $('apiSum').innerHTML = parts.join('') + (S.apiPlan.length > 1 ? '<div class="dlg-skip">One file per flow is built for each format.</div>' : '');
+  el.syncGo();
+}
+
+async function runApiBuild() {
+  if (S.apiBusy || !S.apiPlan) return; S.apiBusy = true; $('apiGo').disabled = true; $('apiClose').disabled = true; $('apiWarn').innerHTML = '';
+  const opts = { rows: $('apiRows').checked }, wantPy = $('apiFmtPy').checked, wantPm = $('apiFmtPm').checked; const notes = []; let files = 0;
+  try {
+    for (const p of S.apiPlan) {
+      if (!p.supported.length) continue;
+      const r = await readApiDefinitions(p.flow, p.cfg, opts, (t) => { $('apiProg').innerHTML = `<span class="spinner"></span>${esc(t)}`; });
+      r.warnings.forEach((w) => notes.push(`<div class="msg warn">${esc(w)}</div>`));
+      if (r.notIncluded.length) notes.push(`<div class="msg info">${esc(p.flow.name)}: not included (no script support yet): ${esc(r.notIncluded.join(', '))}.</div>`);
+      if (!r.made) { notes.push(`<div class="msg error">${esc(p.flow.name)}: no objects could be read, so nothing was created.</div>`); continue; }
+      const summary = r.counts.filter(([, c]) => c).map(([l, c]) => `${c} ${esc(l)}`).join(', ');
+      if (wantPy) {
+        const name = `${safeName(p.flow.name)}_create_objects.py`;
+        download(name, renderApiScript(r.defs, r.counts, name), 'text/x-python'); files++; notes.push(`<div class="msg info">${esc(name)}: ${summary}.</div>`); await sleep(350);
+      }
+      if (wantPm) {
+        const name = `${safeName(p.flow.name)}_create_objects.postman_collection.json`;
+        download(name, renderPostman(r.defs, r.counts), 'application/json'); files++; notes.push(`<div class="msg info">${esc(name)}: ${summary}. Import it into Postman, then follow the instructions in the collection description.</div>`); await sleep(350);
+      }
+    }
+    $('apiProg').innerHTML = files ? `Built ${files} file${files === 1 ? '' : 's'}. For the Python script, start with: <code>--region euw2.pure.cloud --client-id &lt;id&gt; --dry-run</code> (use your target region).` : '';
+  } catch (e) { $('apiProg').textContent = ''; notes.push(`<div class="msg error">${esc('The script could not be built: ' + e.message)}</div>`); }
+  $('apiWarn').innerHTML = notes.join(''); S.apiBusy = false; $('apiClose').disabled = false; $('apiDlg').syncGo();
+}
+
+/*__API_END__*/
 function renderExport() {
   $('exportBtn').disabled = S.busy || S.selected.size === 0;
   $('tfBtn').disabled = S.busy || S.selected.size === 0;
   $('diagBtn').disabled = S.busy || S.selected.size === 0;
+  $('apiBtn').disabled = S.busy || S.selected.size === 0;
   $('tfBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to Terraform` : 'Export to Terraform';
   $('exportBtn').textContent = S.selected.size > 1 ? `Export ${S.selected.size} flows to YAML` : 'Export to YAML';
 }
@@ -7206,6 +7558,7 @@ function wire() {
   });
   $('tfBtn').addEventListener('click', exportTerraform);
   $('diagBtn').addEventListener('click', openDiagram);
+  $('apiBtn').addEventListener('click', openApiDialog);
   $('depBody').addEventListener('input', (e) => { const t = e.target; if (t.dataset && t.dataset.gcol !== undefined) S.depColors.set(t.dataset.gcol, t.value); });
   $('depBody').addEventListener('change', (e) => {
     const t = e.target.dataset || {};
